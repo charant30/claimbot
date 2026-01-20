@@ -1,0 +1,121 @@
+import { useState, useRef, useEffect } from 'react'
+import { useChatStore } from '../stores/chatStore'
+import { useAuthStore } from '../stores/authStore'
+import GuestForm from './GuestForm'
+import './ChatWidget.css'
+
+function ChatWidget() {
+    const { isOpen, toggleChat, messages, isLoading, sendMessage, startSession, threadId } = useChatStore()
+    const { isAuthenticated } = useAuthStore()
+    const [input, setInput] = useState('')
+    const [showGuestForm, setShowGuestForm] = useState(false)
+    const messagesEndRef = useRef<HTMLDivElement>(null)
+
+    useEffect(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    }, [messages])
+
+    const handleOpen = async () => {
+        toggleChat()
+        if (!isOpen && !threadId) {
+            if (isAuthenticated) {
+                await startSession()
+            } else {
+                setShowGuestForm(true)
+            }
+        }
+    }
+
+    const handleGuestSubmit = async () => {
+        setShowGuestForm(false)
+        await startSession()
+    }
+
+    const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault()
+        if (!input.trim() || isLoading) return
+
+        const message = input.trim()
+        setInput('')
+        await sendMessage(message)
+    }
+
+    return (
+        <>
+            {/* Chat toggle button */}
+            <button className="chat-toggle" onClick={handleOpen} aria-label="Toggle chat">
+                {isOpen ? (
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                ) : (
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
+                    </svg>
+                )}
+            </button>
+
+            {/* Chat window */}
+            <div className={`chat-widget ${isOpen ? 'open' : ''}`}>
+                <div className="chat-header">
+                    <div className="chat-header-info">
+                        <div className="chat-avatar">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                            </svg>
+                        </div>
+                        <div>
+                            <h3 className="chat-title">ClaimBot</h3>
+                            <p className="chat-subtitle">Insurance Assistant</p>
+                        </div>
+                    </div>
+                    <button className="chat-close" onClick={toggleChat}>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <path d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                    </button>
+                </div>
+
+                {showGuestForm ? (
+                    <GuestForm onSubmit={handleGuestSubmit} />
+                ) : (
+                    <>
+                        <div className="chat-messages">
+                            {messages.map((msg) => (
+                                <div key={msg.id} className={`message ${msg.role}`}>
+                                    <div className="message-content">{msg.content}</div>
+                                </div>
+                            ))}
+                            {isLoading && (
+                                <div className="message assistant">
+                                    <div className="message-content typing">
+                                        <span></span><span></span><span></span>
+                                    </div>
+                                </div>
+                            )}
+                            <div ref={messagesEndRef} />
+                        </div>
+
+                        <form className="chat-input-form" onSubmit={handleSubmit}>
+                            <input
+                                type="text"
+                                value={input}
+                                onChange={(e) => setInput(e.target.value)}
+                                placeholder="Type your message..."
+                                className="chat-input"
+                                disabled={isLoading}
+                            />
+                            <button type="submit" className="chat-send" disabled={isLoading || !input.trim()}>
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                    <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" />
+                                </svg>
+                            </button>
+                        </form>
+                    </>
+                )}
+            </div>
+        </>
+    )
+}
+
+export default ChatWidget

@@ -1,0 +1,119 @@
+.login-page {
+    min-height: calc(100vh - 73px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--space-lg);
+}
+
+.login-container {
+    width: 100%;
+    max-width: 400px;
+    background: var(--bg-primary);
+    padding: var(--space-xl);
+    border-radius: var(--border-radius-lg);
+    box-shadow: var(--shadow-lg);
+}
+
+.login-header {
+    text-align: center;
+    margin-bottom: var(--space-xl);
+}
+
+.login-logo {
+    width: 48px;
+    height: 48px;
+    color: var(--color-primary);
+    margin-bottom: var(--space-md);
+}
+
+.login-header h1 {
+    font-size: 1.5rem;
+    color: var(--text-primary);
+    margin-bottom: var(--space-xs);
+}
+
+.login-header p {
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+}
+
+.login-form {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-md);
+}
+
+.login-form .form-group {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+}
+
+.login-form label {
+    font-weight: 500;
+    font-size: 0.875rem;
+    color: var(--text-primary);
+}
+
+.login-form input {
+    padding: var(--space-sm) var(--space-md);
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius-sm);
+    font-size: 1rem;
+}
+
+.form-error {
+    background: #fef2f2;
+    color: #dc2626;
+    padding: var(--space-sm) var(--space-md);
+    border-radius: var(--border-radius-sm);
+    font-size: 0.875rem;
+}
+
+.login-submit {
+    margin-top: var(--space-sm);
+    padding: var(--space-md);
+    width: 100%;
+    font-size: 1rem;
+}
+
+.login-footer {
+    margin-top: var(--space-lg);
+    text-align: center;
+}
+
+.login-footer p {
+    color: var(--text-secondary);
+    font-size: 0.875rem;
+}
+
+.toggle-mode {
+    background: none;
+    color: var(--color-primary);
+    font-weight: 600;
+    margin-left: var(--space-xs);
+    padding: 0;
+}
+
+.toggle-mode:hover {
+    text-decoration: underline;
+}
+
+.demo-credentials {
+    margin-top: var(--space-lg);
+    padding: var(--space-md);
+    background: var(--bg-tertiary);
+    border-radius: var(--border-radius-sm);
+    text-align: center;
+    font-size: 0.8rem;
+}
+
+.demo-credentials p {
+    color: var(--text-secondary);
+    margin-bottom: var(--space-xs);
+}
+
+.demo-credentials code {
+    color: var(--color-primary);
+}
