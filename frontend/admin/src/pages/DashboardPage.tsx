@@ -10,6 +10,10 @@ interface Metrics {
     resolved_cases: number
     claims_by_status: Record<string, number>
     escalation_rate: number
+    active_sessions: number
+    total_sessions_today: number
+    llm_provider: string
+    langfuse_enabled: boolean
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -87,6 +91,31 @@ function DashboardPage() {
                     <div className="stat-content">
                         <span className="stat-value">{metrics?.resolved_cases || 0}</span>
                         <span className="stat-label">Resolved Cases</span>
+                    </div>
+                </div>
+            </div>
+
+            {/* Chat & LLM Stats */}
+            <div className="stats-grid secondary">
+                <div className="stat-card info">
+                    <div className="stat-icon">💬</div>
+                    <div className="stat-content">
+                        <span className="stat-value">{metrics?.active_sessions || 0}</span>
+                        <span className="stat-label">Active Chat Sessions</span>
+                    </div>
+                </div>
+                <div className="stat-card">
+                    <div className="stat-icon">🤖</div>
+                    <div className="stat-content">
+                        <span className="stat-value">{metrics?.llm_provider || 'N/A'}</span>
+                        <span className="stat-label">LLM Provider</span>
+                    </div>
+                </div>
+                <div className={`stat-card ${metrics?.langfuse_enabled ? 'success' : 'warning'}`}>
+                    <div className="stat-icon">📊</div>
+                    <div className="stat-content">
+                        <span className="stat-value">{metrics?.langfuse_enabled ? 'Enabled' : 'Disabled'}</span>
+                        <span className="stat-label">LangFuse Observability</span>
                     </div>
                 </div>
             </div>

@@ -1,0 +1,64 @@
+{
+    "policy_number": "HOME-2024-005678",
+    "product_type": "home",
+    "holder": {
+        "name": "Sarah Johnson",
+        "email": "sarah.johnson@example.com"
+    },
+    "property": {
+        "address": "456 Oak Lane",
+        "city": "Austin",
+        "state": "TX",
+        "zip": "78701",
+        "year_built": 2015,
+        "square_feet": 2200,
+        "construction_type": "frame",
+        "roof_type": "composition_shingle"
+    },
+    "effective_date": "2024-01-01",
+    "expiration_date": "2025-12-31",
+    "status": "active",
+    "coverages": [
+        {
+            "coverage_type": "dwelling",
+            "limit_amount": 350000,
+            "deductible": 1000,
+            "description": "Covers damage to the structure of your home"
+        },
+        {
+            "coverage_type": "personal_property",
+            "limit_amount": 175000,
+            "deductible": 500,
+            "description": "Covers your belongings inside the home"
+        },
+        {
+            "coverage_type": "liability",
+            "limit_amount": 300000,
+            "deductible": 0,
+            "description": "Covers injuries to others on your property"
+        },
+        {
+            "coverage_type": "additional_living_expenses",
+            "limit_amount": 70000,
+            "deductible": 0,
+            "description": "Covers temporary housing if home is uninhabitable"
+        },
+        {
+            "coverage_type": "medical_payments",
+            "limit_amount": 5000,
+            "deductible": 0,
+            "description": "Covers minor injuries to guests"
+        }
+    ],
+    "exclusions": [
+        "Flood damage (requires separate flood insurance)",
+        "Earthquake damage",
+        "Maintenance issues and wear and tear",
+        "Intentional damage",
+        "Nuclear hazard"
+    ],
+    "premium": {
+        "monthly": 195.00,
+        "annual": 2340.00
+    }
+}

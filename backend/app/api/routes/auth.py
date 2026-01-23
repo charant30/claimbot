@@ -32,6 +32,7 @@ class TokenResponse(BaseModel):
     token_type: str = "bearer"
     user_id: str
     role: str
+    policy_id: Optional[str] = None  # Policy ID if looked up during guest session
 
 
 class UserResponse(BaseModel):
@@ -120,9 +121,12 @@ async def logout():
 async def create_guest_session(
     name: str,
     email: EmailStr,
+    policy_number: Optional[str] = None,
     db: Session = Depends(get_db),
 ):
     """Create a guest session for unauthenticated users."""
+    from app.db.models import Policy
+
     # Check if email exists as authenticated user
     existing = db.query(User).filter(User.email == email).first()
     if existing and existing.auth_level == AuthLevel.AUTH:
@@ -130,7 +134,7 @@ async def create_guest_session(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Email already registered. Please login.",
         )
-    
+
     # Create or update guest user
     if existing:
         user = existing
@@ -145,7 +149,15 @@ async def create_guest_session(
         db.add(user)
         db.commit()
         db.refresh(user)
-    
+
+    # Lookup policy if policy_number provided
+    policy_id = None
+    if policy_number:
+        policy = db.query(Policy).filter(Policy.policy_number == policy_number).first()
+        if policy:
+            policy_id = str(policy.policy_id)
+            logger.info(f"Guest session with policy lookup: {policy_number} -> {policy_id}")
+
     # Create token with limited expiration
     token = create_access_token(
         {
@@ -156,11 +168,12 @@ async def create_guest_session(
         },
         expires_delta=timedelta(hours=2),
     )
-    
+
     logger.info(f"Guest session created: {user.email}")
-    
+
     return TokenResponse(
         access_token=token,
         user_id=str(user.user_id),
         role=user.role.value,
+        policy_id=policy_id,
     )

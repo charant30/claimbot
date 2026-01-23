@@ -9,6 +9,9 @@ interface Message {
     metadata?: Record<string, any>
 }
 
+// Conversation flow stages
+type FlowStage = 'product_selection' | 'intent_selection' | 'conversation'
+
 interface ChatState {
     isOpen: boolean
     threadId: string | null
@@ -16,14 +19,36 @@ interface ChatState {
     isLoading: boolean
     policyId: string | null
 
+    // Guided flow state
+    flowStage: FlowStage
+    productLine: string | null
+    intent: string | null
+
     toggleChat: () => void
     openChat: () => void
     closeChat: () => void
     startSession: (policyId?: string) => Promise<void>
-    sendMessage: (content: string) => Promise<void>
+    sendMessage: (content: string, metadata?: Record<string, any>) => Promise<void>
+    selectProduct: (product: string) => void
+    selectIntent: (intent: string) => Promise<void>
     clearChat: () => void
     setPolicyId: (policyId: string | null) => void
 }
+
+const PRODUCT_OPTIONS = [
+    { id: 'auto', icon: '🚗', label: 'Auto Insurance' },
+    { id: 'home', icon: '🏠', label: 'Home Insurance' },
+    { id: 'medical', icon: '🏥', label: 'Medical Insurance' },
+]
+
+const INTENT_OPTIONS = [
+    { id: 'file_claim', icon: '📝', label: 'File a New Claim' },
+    { id: 'check_status', icon: '🔍', label: 'Check Claim Status' },
+    { id: 'coverage_question', icon: '❓', label: 'Coverage Questions' },
+    { id: 'billing', icon: '💵', label: 'Billing Inquiry' },
+]
+
+export { PRODUCT_OPTIONS, INTENT_OPTIONS }
 
 export const useChatStore = create<ChatState>((set, get) => ({
     isOpen: false,
@@ -31,6 +56,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
     messages: [],
     isLoading: false,
     policyId: null,
+    flowStage: 'product_selection',
+    productLine: null,
+    intent: null,
 
     toggleChat: () => set((state) => ({ isOpen: !state.isOpen })),
     openChat: () => set({ isOpen: true }),
@@ -44,18 +72,106 @@ export const useChatStore = create<ChatState>((set, get) => ({
                 messages: [{
                     id: 'welcome',
                     role: 'assistant',
-                    content: "Hello! I'm your ClaimBot assistant. How can I help you today?\n\n• File a new claim\n• Check claim status\n• Ask about your coverage\n• Billing questions",
+                    content: "Hello! I'm ClaimBot, your insurance assistant. What type of insurance can I help you with today?",
                     timestamp: new Date(),
                 }],
                 policyId: policyId || null,
+                flowStage: 'product_selection',
+                productLine: null,
+                intent: null,
             })
         } catch (error) {
             console.error('Failed to start chat session:', error)
         }
     },
 
-    sendMessage: async (content: string) => {
-        const { threadId, messages } = get()
+    selectProduct: (product: string) => {
+        const productLabel = PRODUCT_OPTIONS.find(p => p.id === product)?.label || product
+
+        // Add user's selection as a message
+        set((state) => ({
+            productLine: product,
+            flowStage: 'intent_selection',
+            messages: [
+                ...state.messages,
+                {
+                    id: `user-${Date.now()}`,
+                    role: 'user',
+                    content: productLabel,
+                    timestamp: new Date(),
+                },
+                {
+                    id: `bot-${Date.now()}`,
+                    role: 'assistant',
+                    content: `Great! How can I help you with your ${productLabel.toLowerCase()}?`,
+                    timestamp: new Date(),
+                },
+            ],
+        }))
+    },
+
+    selectIntent: async (intent: string) => {
+        const { productLine, threadId } = get()
+        const intentLabel = INTENT_OPTIONS.find(i => i.id === intent)?.label || intent
+
+        // Add user's selection as a message
+        set((state) => ({
+            intent,
+            flowStage: 'conversation',
+            messages: [
+                ...state.messages,
+                {
+                    id: `user-${Date.now()}`,
+                    role: 'user',
+                    content: intentLabel,
+                    timestamp: new Date(),
+                },
+            ],
+            isLoading: true,
+        }))
+
+        // Send the selection to backend with metadata
+        try {
+            if (!threadId) return
+
+            const response = await chatApi.sendMessage(
+                threadId,
+                `I want to ${intentLabel.toLowerCase()} for my ${productLine} insurance.`,
+                { product_line: productLine, intent }
+            )
+
+            set((state) => ({
+                messages: [
+                    ...state.messages,
+                    {
+                        id: response.message_id,
+                        role: 'assistant',
+                        content: response.content,
+                        timestamp: new Date(),
+                        metadata: response.metadata,
+                    },
+                ],
+                isLoading: false,
+            }))
+        } catch (error) {
+            console.error('Failed to send intent:', error)
+            set((state) => ({
+                messages: [
+                    ...state.messages,
+                    {
+                        id: `error-${Date.now()}`,
+                        role: 'assistant',
+                        content: "I'm sorry, I encountered an error. Please try again.",
+                        timestamp: new Date(),
+                    },
+                ],
+                isLoading: false,
+            }))
+        }
+    },
+
+    sendMessage: async (content: string, metadata?: Record<string, any>) => {
+        const { threadId, messages, productLine, intent } = get()
 
         if (!threadId) {
             await get().startSession()
@@ -78,7 +194,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
         })
 
         try {
-            const response = await chatApi.sendMessage(currentThreadId, content)
+            const response = await chatApi.sendMessage(
+                currentThreadId,
+                content,
+                { ...metadata, product_line: productLine, intent }
+            )
 
             const assistantMessage: Message = {
                 id: response.message_id,
@@ -113,6 +233,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
         threadId: null,
         messages: [],
         policyId: null,
+        flowStage: 'product_selection',
+        productLine: null,
+        intent: null,
     }),
 
     setPolicyId: (policyId: string | null) => set({ policyId }),

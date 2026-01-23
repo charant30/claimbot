@@ -1,11 +1,14 @@
 import { useState, useRef, useEffect } from 'react'
-import { useChatStore } from '../stores/chatStore'
+import { useChatStore, PRODUCT_OPTIONS, INTENT_OPTIONS } from '../stores/chatStore'
 import { useAuthStore } from '../stores/authStore'
 import GuestForm from './GuestForm'
 import './ChatWidget.css'
 
 function ChatWidget() {
-    const { isOpen, toggleChat, messages, isLoading, sendMessage, startSession, threadId } = useChatStore()
+    const {
+        isOpen, toggleChat, messages, isLoading, sendMessage,
+        startSession, threadId, flowStage, selectProduct, selectIntent
+    } = useChatStore()
     const { isAuthenticated } = useAuthStore()
     const [input, setInput] = useState('')
     const [showGuestForm, setShowGuestForm] = useState(false)
@@ -38,6 +41,14 @@ function ChatWidget() {
         const message = input.trim()
         setInput('')
         await sendMessage(message)
+    }
+
+    const handleProductSelect = (productId: string) => {
+        selectProduct(productId)
+    }
+
+    const handleIntentSelect = async (intentId: string) => {
+        await selectIntent(intentId)
     }
 
     return (
@@ -86,6 +97,39 @@ function ChatWidget() {
                                     <div className="message-content">{msg.content}</div>
                                 </div>
                             ))}
+
+                            {/* Product Selection Buttons */}
+                            {flowStage === 'product_selection' && !isLoading && messages.length > 0 && (
+                                <div className="selection-buttons">
+                                    {PRODUCT_OPTIONS.map((option) => (
+                                        <button
+                                            key={option.id}
+                                            className="selection-btn product-btn"
+                                            onClick={() => handleProductSelect(option.id)}
+                                        >
+                                            <span className="btn-icon">{option.icon}</span>
+                                            <span className="btn-label">{option.label}</span>
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+
+                            {/* Intent Selection Buttons */}
+                            {flowStage === 'intent_selection' && !isLoading && (
+                                <div className="selection-buttons intent-buttons">
+                                    {INTENT_OPTIONS.map((option) => (
+                                        <button
+                                            key={option.id}
+                                            className="selection-btn intent-btn"
+                                            onClick={() => handleIntentSelect(option.id)}
+                                        >
+                                            <span className="btn-icon">{option.icon}</span>
+                                            <span className="btn-label">{option.label}</span>
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+
                             {isLoading && (
                                 <div className="message assistant">
                                     <div className="message-content typing">
@@ -96,21 +140,24 @@ function ChatWidget() {
                             <div ref={messagesEndRef} />
                         </div>
 
-                        <form className="chat-input-form" onSubmit={handleSubmit}>
-                            <input
-                                type="text"
-                                value={input}
-                                onChange={(e) => setInput(e.target.value)}
-                                placeholder="Type your message..."
-                                className="chat-input"
-                                disabled={isLoading}
-                            />
-                            <button type="submit" className="chat-send" disabled={isLoading || !input.trim()}>
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                    <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" />
-                                </svg>
-                            </button>
-                        </form>
+                        {/* Only show input when in conversation mode */}
+                        {flowStage === 'conversation' && (
+                            <form className="chat-input-form" onSubmit={handleSubmit}>
+                                <input
+                                    type="text"
+                                    value={input}
+                                    onChange={(e) => setInput(e.target.value)}
+                                    placeholder="Type your message..."
+                                    className="chat-input"
+                                    disabled={isLoading}
+                                />
+                                <button type="submit" className="chat-send" disabled={isLoading || !input.trim()}>
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                        <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" />
+                                    </svg>
+                                </button>
+                            </form>
+                        )}
                     </>
                 )}
             </div>

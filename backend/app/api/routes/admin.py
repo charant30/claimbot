@@ -41,6 +41,12 @@ class MetricsResponse(BaseModel):
     resolved_cases: int
     claims_by_status: Dict[str, int]
     escalation_rate: float
+    # Chat metrics
+    active_sessions: int = 0
+    total_sessions_today: int = 0
+    # LLM metrics
+    llm_provider: str = "unknown"
+    langfuse_enabled: bool = False
 
 
 class AuditLogResponse(BaseModel):
@@ -118,7 +124,7 @@ async def get_metrics(
     payload: dict = Depends(require_role(["admin"])),
     db: Session = Depends(get_db),
 ):
-    """Get dashboard metrics."""
+    """Get dashboard metrics including chat and LLM stats."""
     total_users = db.query(func.count(User.user_id)).scalar()
     total_claims = db.query(func.count(Claim.claim_id)).scalar()
     
@@ -142,6 +148,22 @@ async def get_metrics(
     total_cases = db.query(func.count(Case.case_id)).scalar()
     escalation_rate = (total_cases / total_claims * 100) if total_claims > 0 else 0
     
+    # Chat session metrics (from session store)
+    try:
+        from app.services.session_store import get_session_store
+        session_store = get_session_store()
+        active_sessions = session_store.count()
+    except (ImportError, AttributeError) as e:
+        logger.warning(f"Failed to get session count: {e}")
+        active_sessions = 0
+    
+    # LLM provider info
+    llm_provider = get_setting(db, "llm_provider", "ollama")
+    
+    # LangFuse status
+    from app.core.config import settings
+    langfuse_enabled = bool(settings.LANGFUSE_PUBLIC_KEY)
+    
     return MetricsResponse(
         total_users=total_users,
         total_claims=total_claims,
@@ -149,6 +171,10 @@ async def get_metrics(
         resolved_cases=resolved_cases,
         claims_by_status=claims_by_status,
         escalation_rate=round(escalation_rate, 2),
+        active_sessions=active_sessions,
+        total_sessions_today=active_sessions,  # Simplified for now
+        llm_provider=llm_provider,
+        langfuse_enabled=langfuse_enabled,
     )
 
 
@@ -180,15 +206,72 @@ async def get_audit_logs(
     ]
 
 
-@router.get("/transcripts")
+class TranscriptSummary(BaseModel):
+    thread_id: str
+    user_id: str
+    policy_id: Optional[str]
+    message_count: int
+    created_at: str
+    last_message: Optional[str] = None
+
+
+class TranscriptDetail(BaseModel):
+    thread_id: str
+    user_id: str
+    policy_id: Optional[str]
+    messages: List[Dict[str, Any]]
+    created_at: str
+
+
+@router.get("/transcripts", response_model=List[TranscriptSummary])
 async def get_transcripts(
     limit: int = 50,
     payload: dict = Depends(require_role(["admin"])),
     db: Session = Depends(get_db),
 ):
-    """Get chat transcripts (placeholder)."""
-    # TODO: Implement full transcript retrieval
-    return {"message": "Transcript endpoint - to be integrated with chat service"}
+    """Get all chat session transcripts for admin review."""
+    from app.services.session_store import get_session_store
+    session_store = get_session_store()
+
+    sessions = session_store.list_all(limit=limit)
+
+    return [
+        TranscriptSummary(
+            thread_id=session.get("thread_id", ""),
+            user_id=session.get("user_id", ""),
+            policy_id=session.get("policy_id"),
+            message_count=len(session.get("messages", [])),
+            created_at=session.get("created_at", ""),
+            last_message=session.get("messages", [])[-1].get("content", "")[:100] if session.get("messages") else None,
+        )
+        for session in sessions
+    ]
+
+
+@router.get("/transcripts/{thread_id}", response_model=TranscriptDetail)
+async def get_transcript_detail(
+    thread_id: str,
+    payload: dict = Depends(require_role(["admin"])),
+    db: Session = Depends(get_db),
+):
+    """Get detailed transcript for a specific chat session."""
+    from app.services.session_store import get_session_store
+    session_store = get_session_store()
+
+    session = session_store.get(thread_id)
+    if not session:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Session not found",
+        )
+
+    return TranscriptDetail(
+        thread_id=session.get("thread_id", ""),
+        user_id=session.get("user_id", ""),
+        policy_id=session.get("policy_id"),
+        messages=session.get("messages", []),
+        created_at=session.get("created_at", ""),
+    )
 
 
 @router.get("/intents")

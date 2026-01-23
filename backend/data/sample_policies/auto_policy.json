@@ -1,0 +1,60 @@
+{
+    "policy_number": "AUTO-2024-001234",
+    "product_type": "auto",
+    "holder": {
+        "name": "Michael Perez",
+        "email": "michael.perez3@example.com"
+    },
+    "vehicle": {
+        "year": 2021,
+        "make": "Honda",
+        "model": "Accord",
+        "vin": "1HGCG123456789012",
+        "color": "Silver"
+    },
+    "effective_date": "2024-01-01",
+    "expiration_date": "2025-12-31",
+    "status": "active",
+    "coverages": [
+        {
+            "coverage_type": "collision",
+            "limit_amount": 50000,
+            "deductible": 500,
+            "description": "Covers damage to your vehicle from collisions"
+        },
+        {
+            "coverage_type": "comprehensive",
+            "limit_amount": 50000,
+            "deductible": 250,
+            "description": "Covers non-collision damage (theft, weather, vandalism)"
+        },
+        {
+            "coverage_type": "liability_bodily",
+            "limit_amount": 100000,
+            "deductible": 0,
+            "description": "Covers injuries to others when you're at fault"
+        },
+        {
+            "coverage_type": "liability_property",
+            "limit_amount": 50000,
+            "deductible": 0,
+            "description": "Covers damage to others' property when you're at fault"
+        },
+        {
+            "coverage_type": "uninsured_motorist",
+            "limit_amount": 100000,
+            "deductible": 0,
+            "description": "Covers you if hit by uninsured driver"
+        }
+    ],
+    "exclusions": [
+        "Racing or speed contests",
+        "Intentional damage",
+        "Commercial use of personal vehicle",
+        "Damage while under influence of drugs/alcohol"
+    ],
+    "premium": {
+        "monthly": 125.00,
+        "annual": 1500.00
+    }
+}

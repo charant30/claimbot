@@ -4,6 +4,7 @@ Chat API routes
 from typing import List, Optional, Dict, Any
 from uuid import UUID
 import uuid as uuid_lib
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect, status
 from pydantic import BaseModel
@@ -12,6 +13,7 @@ from sqlalchemy.orm import Session
 from app.db import get_db
 from app.db.models import Policy
 from app.core import get_current_user_id, logger
+from app.services.session_store import get_session_store
 
 router = APIRouter()
 
@@ -42,10 +44,6 @@ class ChatMessageResponse(BaseModel):
     metadata: Dict[str, Any] = {}
 
 
-# In-memory session store (replace with Redis in production)
-_sessions: Dict[str, Dict[str, Any]] = {}
-
-
 @router.post("/session", response_model=ChatSessionResponse)
 async def create_chat_session(
     request: ChatSessionRequest,
@@ -53,8 +51,9 @@ async def create_chat_session(
     db: Session = Depends(get_db),
 ):
     """Create a new chat session."""
+    session_store = get_session_store()
     thread_id = str(uuid_lib.uuid4())
-    
+
     # Validate policy if provided
     policy_id = None
     if request.policy_id:
@@ -64,8 +63,7 @@ async def create_chat_session(
         ).first()
         if policy:
             policy_id = str(policy.policy_id)
-    
-    from datetime import datetime
+
     session = {
         "thread_id": thread_id,
         "user_id": user_id,
@@ -73,10 +71,10 @@ async def create_chat_session(
         "messages": [],
         "created_at": datetime.utcnow().isoformat(),
     }
-    _sessions[thread_id] = session
-    
+    session_store.set(thread_id, session, ttl_hours=24)
+
     logger.info(f"Chat session created: {thread_id}")
-    
+
     return ChatSessionResponse(
         thread_id=thread_id,
         policy_id=policy_id,
@@ -92,19 +90,20 @@ async def send_message(
     db: Session = Depends(get_db),
 ):
     """Send a message to the AI chatbot."""
-    session = _sessions.get(request.thread_id)
+    session_store = get_session_store()
+    session = session_store.get(request.thread_id)
     if not session:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Session not found",
         )
-    
+
     if session["user_id"] != user_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized for this session",
         )
-    
+
     # Store user message
     user_msg = {
         "message_id": str(uuid_lib.uuid4()),
@@ -113,18 +112,18 @@ async def send_message(
         "metadata": request.metadata,
     }
     session["messages"].append(user_msg)
-    
+
     # Process through LangGraph
     from app.services.chat import get_chat_service
     chat_service = get_chat_service(db)
-    
+
     result = chat_service.process_message(
         thread_id=request.thread_id,
         user_id=user_id,
         message=request.message,
         policy_id=session.get("policy_id"),
     )
-    
+
     assistant_msg = {
         "message_id": str(uuid_lib.uuid4()),
         "role": "assistant",
@@ -136,9 +135,12 @@ async def send_message(
         },
     }
     session["messages"].append(assistant_msg)
-    
+
+    # Update session in store
+    session_store.set(request.thread_id, session, ttl_hours=24)
+
     logger.info(f"Chat message in thread {request.thread_id}")
-    
+
     return ChatMessageResponse(
         message_id=assistant_msg["message_id"],
         thread_id=request.thread_id,
@@ -154,19 +156,20 @@ async def get_session_messages(
     user_id: str = Depends(get_current_user_id),
 ):
     """Get all messages in a chat session."""
-    session = _sessions.get(thread_id)
+    session_store = get_session_store()
+    session = session_store.get(thread_id)
     if not session:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Session not found",
         )
-    
+
     if session["user_id"] != user_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized for this session",
         )
-    
+
     return [
         ChatMessageResponse(
             message_id=msg["message_id"],

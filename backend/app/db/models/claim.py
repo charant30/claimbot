@@ -48,7 +48,7 @@ class Claim(Base):
     # Metadata varies by claim type:
     # Incident: {location, description, police_report_number, vehicle_info, ...}
     # Medical: {provider_npi, diagnosis_codes, procedure_codes, service_date, ...}
-    metadata = Column(JSON, default=dict)
+    claim_metadata = Column(JSON, default=dict)
     
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

@@ -239,6 +239,65 @@
     height: 18px;
 }
 
+/* Selection Buttons */
+.selection-buttons {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+    padding: var(--space-sm) 0;
+    animation: fadeIn 0.3s ease;
+}
+
+.selection-btn {
+    display: flex;
+    align-items: center;
+    gap: var(--space-md);
+    padding: var(--space-md);
+    background: white;
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius);
+    cursor: pointer;
+    transition: all 0.2s ease;
+    text-align: left;
+}
+
+.selection-btn:hover {
+    border-color: var(--color-primary);
+    background: rgba(59, 130, 246, 0.05);
+    transform: translateX(4px);
+}
+
+.btn-icon {
+    font-size: 1.5rem;
+}
+
+.btn-label {
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.product-btn {
+    background: linear-gradient(135deg, rgba(59, 130, 246, 0.05), rgba(139, 92, 246, 0.05));
+}
+
+.product-btn:hover {
+    background: linear-gradient(135deg, rgba(59, 130, 246, 0.1), rgba(139, 92, 246, 0.1));
+    border-color: var(--color-primary);
+}
+
+.intent-btn {
+    padding: var(--space-sm) var(--space-md);
+}
+
+.intent-btn .btn-icon {
+    font-size: 1.2rem;
+}
+
+.intent-btn .btn-label {
+    font-size: 0.85rem;
+}
+
 /* Responsive */
 @media (max-width: 480px) {
     .chat-widget {

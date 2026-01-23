@@ -7,6 +7,7 @@ interface User {
     email: string
     name: string
     role: string
+    policyId?: string  // Policy ID if looked up during guest login
 }
 
 interface AuthState {
@@ -18,7 +19,7 @@ interface AuthState {
 
     login: (email: string, password: string) => Promise<void>
     signup: (email: string, password: string, name: string) => Promise<void>
-    guestLogin: (name: string, email: string) => Promise<void>
+    guestLogin: (name: string, email: string, policyNumber?: string) => Promise<void>
     logout: () => void
     clearError: () => void
 }
@@ -80,10 +81,10 @@ export const useAuthStore = create<AuthState>()(
                 }
             },
 
-            guestLogin: async (name: string, email: string) => {
+            guestLogin: async (name: string, email: string, policyNumber?: string) => {
                 set({ isLoading: true, error: null })
                 try {
-                    const response = await authApi.guestSession(name, email)
+                    const response = await authApi.guestSession(name, email, policyNumber)
                     set({
                         token: response.access_token,
                         user: {
@@ -91,6 +92,7 @@ export const useAuthStore = create<AuthState>()(
                             email,
                             name,
                             role: 'customer',
+                            policyId: response.policy_id,  // Store policy ID if returned
                         },
                         isAuthenticated: true,
                         isLoading: false,

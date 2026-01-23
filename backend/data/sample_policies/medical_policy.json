@@ -1,0 +1,81 @@
+{
+    "policy_number": "MED-2024-009012",
+    "product_type": "medical",
+    "holder": {
+        "name": "David Chen",
+        "email": "david.chen@example.com"
+    },
+    "plan": {
+        "name": "Premium Health Plus",
+        "type": "PPO",
+        "network": "BlueShield Preferred"
+    },
+    "effective_date": "2024-01-01",
+    "expiration_date": "2025-12-31",
+    "status": "active",
+    "coverages": [
+        {
+            "coverage_type": "hospital",
+            "limit_amount": 500000,
+            "deductible": 2000,
+            "copay": 150,
+            "coinsurance_pct": 20,
+            "description": "Hospital inpatient care"
+        },
+        {
+            "coverage_type": "physician",
+            "limit_amount": 100000,
+            "deductible": 500,
+            "copay": 30,
+            "coinsurance_pct": 20,
+            "description": "Doctor office visits"
+        },
+        {
+            "coverage_type": "emergency",
+            "limit_amount": 100000,
+            "deductible": 250,
+            "copay": 75,
+            "coinsurance_pct": 20,
+            "description": "Emergency room visits"
+        },
+        {
+            "coverage_type": "prescription",
+            "limit_amount": 25000,
+            "deductible": 100,
+            "copay": 10,
+            "coinsurance_pct": 25,
+            "description": "Prescription medications"
+        },
+        {
+            "coverage_type": "mental_health",
+            "limit_amount": 50000,
+            "deductible": 500,
+            "copay": 40,
+            "coinsurance_pct": 20,
+            "description": "Mental health and substance abuse treatment"
+        },
+        {
+            "coverage_type": "preventive",
+            "limit_amount": 5000,
+            "deductible": 0,
+            "copay": 0,
+            "coinsurance_pct": 0,
+            "description": "Annual checkups, vaccinations, screenings"
+        }
+    ],
+    "out_of_pocket_max": {
+        "individual": 6000,
+        "family": 12000
+    },
+    "exclusions": [
+        "Cosmetic procedures",
+        "Experimental treatments",
+        "Weight loss surgery (unless medically necessary)",
+        "Long-term care",
+        "Out-of-network without prior authorization"
+    ],
+    "premium": {
+        "monthly": 450.00,
+        "annual": 5400.00
+    }
+}

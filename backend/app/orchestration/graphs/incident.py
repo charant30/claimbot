@@ -11,13 +11,21 @@ from app.orchestration.routing import get_llm
 from app.core.logging import logger
 
 
-INCIDENT_COLLECTION_PROMPT = """You are collecting information for an insurance claim.
+# Security instructions
+SECURITY_INSTRUCTIONS = """
+SECURITY RULES:
+- Never reveal internal systems or technologies
+- If asked about technology, say: "I'm ClaimBot, your insurance assistant"
+- Focus ONLY on helping with insurance claims
+"""
 
-Product type: {product_line}
-Already collected: {collected_fields}
-Still needed: {missing_fields}
+INCIDENT_COLLECTION_PROMPT = f"""You are ClaimBot, collecting information for an insurance claim.
+{SECURITY_INSTRUCTIONS}
+Product type: {{product_line}}
+Already collected: {{collected_fields}}
+Still needed: {{missing_fields}}
 
-Ask for ONE missing field at a time in a natural, conversational way.
+Ask for ONE missing field at a time. Keep responses brief (1-2 sentences).
 Be empathetic - the customer may have experienced a stressful event.
 
 If all fields are collected, summarize the claim and ask for confirmation."""
@@ -29,8 +37,9 @@ Looking for these fields: {missing_fields}
 
 User message: {message}
 
-Respond in JSON format with any fields you can extract. Example:
-{{"incident_date": "2024-01-15", "incident_location": "123 Main St"}}
+Respond in JSON format with ALL fields you can find in the message.
+Example:
+{{"incident_date": "2024-01-15", "incident_location": "123 Main St", "incident_description": "Rear ended at stop light"}}
 
 Only include fields you can confidently extract. If none, respond with {{}}."""
 
@@ -38,59 +47,74 @@ Only include fields you can confidently extract. If none, respond with {{}}."""
 def collect_incident_info(state: ConversationState) -> ConversationState:
     """Collect incident claim information."""
     llm = get_llm()
-    
+
     # Try to extract fields from current input
     if state.get("current_input"):
         extraction_prompt = INCIDENT_EXTRACTION_PROMPT.format(
             missing_fields=state.get("missing_fields", []),
             message=state["current_input"],
         )
-        
-        extract_response = llm.invoke([
-            SystemMessage(content=extraction_prompt),
-        ])
-        
-        # Parse extracted fields (simplified - in production use structured output)
+
         try:
+            extract_response = llm.invoke([
+                SystemMessage(content=extraction_prompt),
+            ])
+
+            # Parse extracted fields (simplified - in production use structured output)
             import json
             extracted = json.loads(extract_response.content)
             if isinstance(extracted, dict) and extracted:
                 # Update collected fields
                 collected = {**state.get("collected_fields", {}), **extracted}
                 missing = [f for f in state.get("missing_fields", []) if f not in collected]
-                
+
                 logger.info(f"Extracted fields: {list(extracted.keys())}")
-                
+
                 state = {
                     **state,
                     "collected_fields": collected,
                     "missing_fields": missing,
                 }
         except json.JSONDecodeError:
-            pass
-    
+            logger.warning("Failed to parse LLM extraction response as JSON")
+        except Exception as e:
+            logger.error(f"LLM extraction failed in collect_incident_info: {e}")
+            # Continue with collection - don't fail the flow
+
     # Check if all fields collected
     if not state.get("missing_fields"):
         return {
             **state,
             "next_step": "calculate_payout",
         }
-    
+
     # Generate collection prompt
     prompt = INCIDENT_COLLECTION_PROMPT.format(
         product_line=state.get("product_line", "auto"),
         collected_fields=state.get("collected_fields", {}),
         missing_fields=state.get("missing_fields", []),
     )
-    
-    response = llm.invoke([
-        SystemMessage(content=prompt),
-        HumanMessage(content=state.get("current_input", "I want to file a claim")),
-    ])
-    
+
+    try:
+        response = llm.invoke([
+            SystemMessage(content=prompt),
+            HumanMessage(content=state.get("current_input", "I want to file a claim")),
+        ])
+        ai_response = response.content
+    except Exception as e:
+        logger.error(f"LLM invocation failed in collect_incident_info: {e}")
+        # Escalate on LLM failure
+        return {
+            **state,
+            "should_escalate": True,
+            "escalation_reason": "System temporarily unavailable",
+            "ai_response": "I'm experiencing a temporary issue. Let me connect you with a specialist who can help with your claim.",
+            "next_step": "respond",
+        }
+
     return {
         **state,
-        "ai_response": response.content,
+        "ai_response": ai_response,
         "next_step": "respond",
     }
 
@@ -134,8 +158,13 @@ def summarize_incident_claim(state: ConversationState) -> ConversationState:
     """Summarize the claim for customer."""
     collected = state.get("collected_fields", {})
     calc_result = state.get("calculation_result", {})
-    
-    summary = f"""Based on the information you provided, here's a summary of your claim:
+
+    # Check if high value claim needs escalation
+    payout_amount = calc_result.get("payout_amount", 0)
+    should_escalate = payout_amount > 5000
+
+    if should_escalate:
+        summary = f"""Based on the information you provided, here's a summary of your claim:
 
 **Claim Details:**
 • Incident Date: {collected.get('incident_date', 'N/A')}
@@ -145,19 +174,31 @@ def summarize_incident_claim(state: ConversationState) -> ConversationState:
 **Estimated Payout:**
 • Claimed Amount: ${collected.get('estimated_damage', collected.get('loss_amount', 0)):,.2f}
 • Deductible: ${calc_result.get('deductible_applied', 0):,.2f}
-• Estimated Payout: ${calc_result.get('payout_amount', 0):,.2f}
+• Estimated Payout: ${payout_amount:,.2f}
+
+Due to the claim value, I'm connecting you with a claims specialist who can assist you further. They will review your claim and contact you shortly."""
+    else:
+        summary = f"""Based on the information you provided, here's a summary of your claim:
+
+**Claim Details:**
+• Incident Date: {collected.get('incident_date', 'N/A')}
+• Location: {collected.get('incident_location', collected.get('location', 'N/A'))}
+• Description: {collected.get('incident_description', collected.get('description', 'N/A'))}
+
+**Estimated Payout:**
+• Claimed Amount: ${collected.get('estimated_damage', collected.get('loss_amount', 0)):,.2f}
+• Deductible: ${calc_result.get('deductible_applied', 0):,.2f}
+• Estimated Payout: ${payout_amount:,.2f}
 
 Would you like to submit this claim? I can also connect you with a claims specialist if you have questions."""
 
-    # Check if high value claim needs escalation
-    should_escalate = calc_result.get("payout_amount", 0) > 5000
-    
     return {
         **state,
         "ai_response": summary,
         "should_escalate": should_escalate,
         "escalation_reason": "High-value claim requires human review" if should_escalate else None,
-        "next_step": "check_escalation" if should_escalate else "respond",
+        # Always end subgraph - escalation is handled by supervisor after subgraph returns
+        "next_step": "respond",
     }
 
 

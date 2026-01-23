@@ -38,8 +38,12 @@ export const authApi = {
         return response.data
     },
 
-    guestSession: async (name: string, email: string) => {
-        const response = await api.post(`/auth/guest-session?name=${encodeURIComponent(name)}&email=${encodeURIComponent(email)}`)
+    guestSession: async (name: string, email: string, policyNumber?: string) => {
+        let url = `/auth/guest-session?name=${encodeURIComponent(name)}&email=${encodeURIComponent(email)}`
+        if (policyNumber) {
+            url += `&policy_number=${encodeURIComponent(policyNumber)}`
+        }
+        const response = await api.post(url)
         return response.data
     },
 
@@ -91,15 +95,19 @@ export const claimsApi = {
 
 // Chat API
 export const chatApi = {
-    createSession: async (policyId?: string) => {
-        const response = await api.post('/chat/session', { policy_id: policyId })
+    createSession: async (policyId?: string, productLine?: string) => {
+        const response = await api.post('/chat/session', {
+            policy_id: policyId,
+            product_line: productLine,
+        })
         return response.data
     },
 
-    sendMessage: async (threadId: string, message: string) => {
+    sendMessage: async (threadId: string, message: string, metadata?: Record<string, any>) => {
         const response = await api.post('/chat/message', {
             thread_id: threadId,
             message,
+            metadata: metadata || {},
         })
         return response.data
     },

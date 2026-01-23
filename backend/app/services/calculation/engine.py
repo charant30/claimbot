@@ -48,10 +48,10 @@ def calculate_incident_payout(
 ) -> IncidentPayoutResult:
     """
     Calculate payout for incident claims (auto/home).
-    
+
     Deterministic formula:
     payout = min(loss_amount - deductible, coverage_limit)
-    
+
     Args:
         loss_amount: Total claimed loss amount
         deductible: Policy deductible to apply
@@ -59,16 +59,31 @@ def calculate_incident_payout(
         exclusions: List of coverage exclusions
         incident_type: Type of incident (collision, comprehensive, fire, water, etc.)
         incident_details: Additional incident metadata
-        
+
     Returns:
         IncidentPayoutResult with breakdown
+
+    Raises:
+        ValueError: If loss_amount or deductible is negative
     """
-    # Check for exclusions
+    # Input validation
+    if loss_amount < 0:
+        raise ValueError("loss_amount cannot be negative")
+    if deductible < 0:
+        raise ValueError("deductible cannot be negative")
+    if coverage_limit < 0:
+        raise ValueError("coverage_limit cannot be negative")
+
+    # Check for exclusions - use word boundary matching to avoid false positives
     exclusions_applied = []
     if incident_details:
-        # Check if incident matches any exclusion
+        details_str = str(incident_details).lower()
         for excl in exclusions:
-            if excl.lower() in str(incident_details).lower():
+            excl_lower = excl.lower()
+            # Match exact exclusion term or as part of a word boundary
+            # Avoid "water damage" matching "waterfront property"
+            import re
+            if re.search(rf'\b{re.escape(excl_lower)}\b', details_str):
                 exclusions_applied.append(excl)
     
     # If any exclusion applies, payout is zero
@@ -94,7 +109,8 @@ def calculate_incident_payout(
     
     # Check for total loss (payout >= 75% of coverage limit for auto)
     total_loss_threshold = coverage_limit * Decimal("0.75")
-    is_total_loss = payout >= total_loss_threshold and incident_type in ["collision", "comprehensive"]
+    incident_type_lower = incident_type.lower() if incident_type else ""
+    is_total_loss = payout >= total_loss_threshold and incident_type_lower in ["collision", "comprehensive"]
     
     return IncidentPayoutResult(
         loss_amount=round_currency(loss_amount),
@@ -125,14 +141,14 @@ def adjudicate_medical_claim(
 ) -> MedicalAdjudicationResult:
     """
     Adjudicate a medical claim with deterministic calculation.
-    
+
     Order of operations:
     1. Start with allowed amount (network rate) or billed amount
     2. Subtract copay (member pays flat amount)
     3. Apply remaining deductible
     4. Apply coinsurance to remainder
     5. Check coverage limit
-    
+
     Args:
         billed_amount: Amount billed by provider
         allowed_amount: Network-negotiated allowed amount (0 if out-of-network)
@@ -141,17 +157,35 @@ def adjudicate_medical_claim(
         coinsurance_pct: Member coinsurance percentage (e.g., 20 for 20%)
         coverage_limit: Plan coverage limit
         is_in_network: Whether provider is in-network
-        
+
     Returns:
         MedicalAdjudicationResult with breakdown
+
+    Raises:
+        ValueError: If any amount is negative
     """
+    # Input validation
+    if billed_amount < 0:
+        raise ValueError("billed_amount cannot be negative")
+    if allowed_amount < 0:
+        raise ValueError("allowed_amount cannot be negative")
+    if copay < 0:
+        raise ValueError("copay cannot be negative")
+    if deductible_remaining < 0:
+        raise ValueError("deductible_remaining cannot be negative")
+    if coinsurance_pct < 0 or coinsurance_pct > 100:
+        raise ValueError("coinsurance_pct must be between 0 and 100")
+    if coverage_limit < 0:
+        raise ValueError("coverage_limit cannot be negative")
+
     # Use allowed amount for in-network, billed for out-of-network
     base_amount = allowed_amount if is_in_network and allowed_amount > 0 else billed_amount
-    
-    # Out-of-network penalty (typically higher coinsurance)
+
+    # Out-of-network penalty: add 20% to coinsurance, with max of 60% (not 50%)
+    # This ensures the full penalty is applied even for high base coinsurance
     effective_coinsurance = coinsurance_pct
     if not is_in_network:
-        effective_coinsurance = min(coinsurance_pct + Decimal("20"), Decimal("50"))
+        effective_coinsurance = min(coinsurance_pct + Decimal("20"), Decimal("60"))
     
     remaining = base_amount
     

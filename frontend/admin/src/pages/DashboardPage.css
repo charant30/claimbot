@@ -44,6 +44,20 @@
     background: rgba(34, 197, 94, 0.1);
 }
 
+.stat-card.info {
+    border-color: var(--color-primary);
+    background: rgba(59, 130, 246, 0.1);
+}
+
+.stat-card.warning {
+    border-color: #f97316;
+    background: rgba(249, 115, 22, 0.1);
+}
+
+.stats-grid.secondary {
+    margin-top: calc(var(--space-xl) * -0.5);
+}
+
 .stat-icon {
     font-size: 2rem;
 }

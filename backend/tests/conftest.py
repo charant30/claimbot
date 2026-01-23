@@ -59,14 +59,14 @@ def client(db: Session) -> Generator[TestClient, None, None]:
 @pytest.fixture
 def test_user(db: Session):
     """Create a test user."""
-    from app.db.models import User
-    
+    from app.db.models import User, UserRole, AuthLevel
+
     user = User(
         email="test@example.com",
         password_hash=get_password_hash("testpass123"),
         name="Test User",
-        role="customer",
-        authentication_level="registered",
+        role=UserRole.CUSTOMER,
+        auth_level=AuthLevel.AUTH,
     )
     db.add(user)
     db.commit()
@@ -77,14 +77,14 @@ def test_user(db: Session):
 @pytest.fixture
 def test_admin(db: Session):
     """Create a test admin user."""
-    from app.db.models import User
-    
+    from app.db.models import User, UserRole, AuthLevel
+
     admin = User(
         email="admin@example.com",
         password_hash=get_password_hash("adminpass123"),
         name="Test Admin",
-        role="admin",
-        authentication_level="registered",
+        role=UserRole.ADMIN,
+        auth_level=AuthLevel.AUTH,
     )
     db.add(admin)
     db.commit()
@@ -95,14 +95,14 @@ def test_admin(db: Session):
 @pytest.fixture
 def test_celest(db: Session):
     """Create a test Celest agent."""
-    from app.db.models import User
-    
+    from app.db.models import User, UserRole, AuthLevel
+
     celest = User(
         email="celest@example.com",
         password_hash=get_password_hash("celestpass123"),
         name="Test Agent",
-        role="celest",
-        authentication_level="registered",
+        role=UserRole.CELEST,
+        auth_level=AuthLevel.AUTH,
     )
     db.add(celest)
     db.commit()
@@ -114,7 +114,7 @@ def test_celest(db: Session):
 def user_token(test_user):
     """Get an access token for the test user."""
     return create_access_token(
-        data={"sub": str(test_user.user_id), "role": test_user.role}
+        data={"sub": str(test_user.user_id), "role": test_user.role.value}
     )
 
 
@@ -122,7 +122,7 @@ def user_token(test_user):
 def admin_token(test_admin):
     """Get an access token for the test admin."""
     return create_access_token(
-        data={"sub": str(test_admin.user_id), "role": test_admin.role}
+        data={"sub": str(test_admin.user_id), "role": test_admin.role.value}
     )
 
 
@@ -130,7 +130,7 @@ def admin_token(test_admin):
 def celest_token(test_celest):
     """Get an access token for the test Celest agent."""
     return create_access_token(
-        data={"sub": str(test_celest.user_id), "role": test_celest.role}
+        data={"sub": str(test_celest.user_id), "role": test_celest.role.value}
     )
 
 

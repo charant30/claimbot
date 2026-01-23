@@ -12,12 +12,16 @@ from app.orchestration import (
 from app.core.logging import logger
 
 
+# Module-level session store to persist state across requests
+# In production, use Redis or database for persistence
+_conversation_states: Dict[str, ConversationState] = {}
+
+
 class ChatService:
     """Service for processing chat messages through LangGraph."""
     
     def __init__(self, db: Session):
         self.db = db
-        self._sessions: Dict[str, ConversationState] = {}
     
     def get_or_create_session(
         self,
@@ -26,13 +30,17 @@ class ChatService:
         policy_id: Optional[str] = None,
     ) -> ConversationState:
         """Get existing session or create new one."""
-        if thread_id not in self._sessions:
-            self._sessions[thread_id] = create_initial_state(
+        global _conversation_states
+        if thread_id not in _conversation_states:
+            _conversation_states[thread_id] = create_initial_state(
                 thread_id=thread_id,
                 user_id=user_id,
                 policy_id=policy_id,
             )
-        return self._sessions[thread_id]
+            logger.info(f"Created new conversation state for thread {thread_id}")
+        else:
+            logger.info(f"Retrieved existing conversation state for thread {thread_id}")
+        return _conversation_states[thread_id]
     
     def process_message(
         self,
@@ -66,7 +74,8 @@ class ChatService:
             result = supervisor_graph.invoke(state)
             
             # Update session state
-            self._sessions[thread_id] = result
+            global _conversation_states
+            _conversation_states[thread_id] = result
             
             # Prepare response
             response = {
@@ -97,8 +106,9 @@ class ChatService:
     
     def clear_session(self, thread_id: str) -> None:
         """Clear a chat session."""
-        if thread_id in self._sessions:
-            del self._sessions[thread_id]
+        global _conversation_states
+        if thread_id in _conversation_states:
+            del _conversation_states[thread_id]
 
 
 # Factory function for dependency injection

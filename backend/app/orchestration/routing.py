@@ -5,7 +5,7 @@ from typing import Optional, Any
 from enum import Enum
 
 from langchain_core.language_models import BaseChatModel
-from langchain_community.chat_models import ChatOllama
+from langchain_ollama import ChatOllama
 from sqlalchemy.orm import Session
 
 from app.core.config import settings

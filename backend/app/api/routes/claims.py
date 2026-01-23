@@ -7,7 +7,7 @@ from uuid import UUID
 import uuid as uuid_lib
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from sqlalchemy.orm import Session
 
 from app.db import get_db
@@ -24,11 +24,49 @@ class CreateClaimRequest(BaseModel):
     incident_date: str
     metadata: Dict[str, Any] = {}
 
+    @field_validator("claim_type")
+    @classmethod
+    def validate_claim_type(cls, v: str) -> str:
+        valid_types = [ct.value for ct in ClaimType]
+        if v not in valid_types:
+            raise ValueError(f"claim_type must be one of: {', '.join(valid_types)}")
+        return v
+
+    @field_validator("incident_date")
+    @classmethod
+    def validate_incident_date(cls, v: str) -> str:
+        try:
+            parsed_date = date.fromisoformat(v)
+            # Ensure date is not in the future
+            if parsed_date > date.today():
+                raise ValueError("incident_date cannot be in the future")
+            return v
+        except ValueError as e:
+            if "cannot be in the future" in str(e):
+                raise
+            raise ValueError("incident_date must be in ISO format (YYYY-MM-DD)")
+
 
 class UpdateClaimRequest(BaseModel):
     status: Optional[str] = None
     loss_amount: Optional[float] = None
     metadata: Optional[Dict[str, Any]] = None
+
+    @field_validator("status")
+    @classmethod
+    def validate_status(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None:
+            valid_statuses = [cs.value for cs in ClaimStatus]
+            if v not in valid_statuses:
+                raise ValueError(f"status must be one of: {', '.join(valid_statuses)}")
+        return v
+
+    @field_validator("loss_amount")
+    @classmethod
+    def validate_loss_amount(cls, v: Optional[float]) -> Optional[float]:
+        if v is not None and v < 0:
+            raise ValueError("loss_amount cannot be negative")
+        return v
 
 
 class ClaimResponse(BaseModel):

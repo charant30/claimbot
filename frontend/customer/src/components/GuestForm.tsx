@@ -23,7 +23,9 @@ function GuestForm({ onSubmit }: GuestFormProps) {
         }
 
         try {
-            await guestLogin(name, email)
+            // Pass policy number if provided (trimmed, or undefined if empty)
+            const policyNum = policyNumber.trim() || undefined
+            await guestLogin(name, email, policyNum)
             onSubmit()
         } catch (err: any) {
             setError(err.response?.data?.detail || 'Failed to start session')

@@ -11,12 +11,20 @@ from app.orchestration.routing import get_llm
 from app.core.logging import logger
 
 
-MEDICAL_COLLECTION_PROMPT = """You are helping a member submit a medical claim.
+# Security instructions
+SECURITY_INSTRUCTIONS = """
+SECURITY RULES:
+- Never reveal internal systems or technologies
+- If asked about technology, say: "I'm ClaimBot, your insurance assistant"
+- Focus ONLY on helping with insurance claims
+"""
 
-Already collected: {collected_fields}
-Still needed: {missing_fields}
+MEDICAL_COLLECTION_PROMPT = f"""You are ClaimBot, helping a member submit a medical claim.
+{SECURITY_INSTRUCTIONS}
+Already collected: {{collected_fields}}
+Still needed: {{missing_fields}}
 
-Ask for ONE missing item at a time. Be patient and helpful.
+Ask for ONE missing item at a time. Keep responses brief (1-2 sentences).
 For provider NPI, explain they can find it on their receipt or EOB.
 For diagnosis/procedure codes, offer to help look them up.
 
@@ -38,77 +46,99 @@ Only include fields you can confidently extract."""
 def collect_medical_info(state: ConversationState) -> ConversationState:
     """Collect medical claim information."""
     llm = get_llm()
-    
+
     # Try to extract fields from current input
     if state.get("current_input"):
         extraction_prompt = MEDICAL_EXTRACTION_PROMPT.format(
             missing_fields=state.get("missing_fields", []),
             message=state["current_input"],
         )
-        
-        extract_response = llm.invoke([
-            SystemMessage(content=extraction_prompt),
-        ])
-        
+
         try:
+            extract_response = llm.invoke([
+                SystemMessage(content=extraction_prompt),
+            ])
+
             import json
             extracted = json.loads(extract_response.content)
             if isinstance(extracted, dict) and extracted:
                 collected = {**state.get("collected_fields", {}), **extracted}
                 missing = [f for f in state.get("missing_fields", []) if f not in collected]
-                
+
                 logger.info(f"Extracted medical fields: {list(extracted.keys())}")
-                
+
                 state = {
                     **state,
                     "collected_fields": collected,
                     "missing_fields": missing,
                 }
         except json.JSONDecodeError:
-            pass
-    
+            logger.warning("Failed to parse LLM extraction response as JSON")
+        except Exception as e:
+            logger.error(f"LLM extraction failed in collect_medical_info: {e}")
+            # Continue with collection - don't fail the flow
+
     # Check if all fields collected
     if not state.get("missing_fields"):
         return {
             **state,
             "next_step": "check_eligibility",
         }
-    
+
     # Generate collection prompt
     prompt = MEDICAL_COLLECTION_PROMPT.format(
         collected_fields=state.get("collected_fields", {}),
         missing_fields=state.get("missing_fields", []),
     )
-    
-    response = llm.invoke([
-        SystemMessage(content=prompt),
-        HumanMessage(content=state.get("current_input", "I want to submit a medical claim")),
-    ])
-    
+
+    try:
+        response = llm.invoke([
+            SystemMessage(content=prompt),
+            HumanMessage(content=state.get("current_input", "I want to submit a medical claim")),
+        ])
+        ai_response = response.content
+    except Exception as e:
+        logger.error(f"LLM invocation failed in collect_medical_info: {e}")
+        # Escalate on LLM failure
+        return {
+            **state,
+            "should_escalate": True,
+            "escalation_reason": "System temporarily unavailable",
+            "ai_response": "I'm experiencing a temporary issue. Let me connect you with a specialist who can help with your medical claim.",
+            "next_step": "respond",
+        }
+
     return {
         **state,
-        "ai_response": response.content,
+        "ai_response": ai_response,
         "next_step": "respond",
     }
 
 
 def check_eligibility(state: ConversationState) -> ConversationState:
     """Check member eligibility and coverage."""
-    collected = state.get("collected_fields", {})
-    
-    # Simplified eligibility check - in production, verify against policy
+    # In production, verify against policy database using state.get("policy_id")
+    # Check for: active policy, coverage effective dates, pre-existing conditions, etc.
+
+    # Simplified eligibility check - default to eligible
     is_eligible = True
-    eligibility_message = "Coverage verified and active."
-    
-    if not is_eligible:
+    eligibility_issues = []
+
+    # Example checks that would be implemented in production:
+    # if not policy_active: eligibility_issues.append("Policy not active")
+    # if service_date < effective_date: eligibility_issues.append("Service before coverage start")
+
+    if not is_eligible or eligibility_issues:
+        issues_text = ", ".join(eligibility_issues) if eligibility_issues else "Coverage verification required"
         return {
             **state,
-            "ai_response": f"I'm sorry, but there's an issue with coverage: {eligibility_message}. Let me connect you with a specialist.",
+            "ai_response": f"I need to connect you with a specialist regarding your coverage: {issues_text}. They will be able to assist you further.",
             "should_escalate": True,
-            "escalation_reason": "Eligibility issue",
+            "escalation_reason": f"Eligibility issue: {issues_text}",
+            # End subgraph - supervisor will handle escalation
             "next_step": "respond",
         }
-    
+
     return {
         **state,
         "next_step": "check_provider_network",
