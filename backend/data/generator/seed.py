@@ -271,6 +271,7 @@ def seed_default_settings(db: Session) -> None:
     defaults = [
         ("llm_provider", "ollama", "Active LLM provider"),
         ("ollama_model", "llama3", "Ollama model name"),
+        ("ollama_vision_model", "llava", "Ollama vision model name"),
         ("ollama_endpoint", "http://localhost:11434", "Ollama endpoint URL"),
         ("bedrock_model", "anthropic.claude-3-sonnet-20240229-v1:0", "Bedrock model ID"),
         ("confidence_threshold", 0.7, "AI confidence threshold for escalation"),

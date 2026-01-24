@@ -122,6 +122,7 @@ async def send_message(
         user_id=user_id,
         message=request.message,
         policy_id=session.get("policy_id"),
+        metadata=request.metadata,
     )
 
     assistant_msg = {

@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from app.db import get_db
 from app.db.models import Document, DocumentType, Claim, Policy
 from app.core import get_current_user_id, settings, logger
+from app.services.ocr import extract_document_entities
 
 router = APIRouter()
 
@@ -71,6 +72,13 @@ async def upload_document(
     with open(file_path, "wb") as f:
         f.write(file_content)
     
+    extracted_entities = await extract_document_entities(
+        file_path=file_path,
+        doc_type=doc_type,
+        content_type=file.content_type,
+        db=db,
+    )
+
     # Create document record
     document = Document(
         claim_id=claim.claim_id,
@@ -79,7 +87,7 @@ async def upload_document(
         storage_url=file_path,
         content_type=file.content_type,
         file_size=f"{len(file_content) / 1024:.1f}KB",
-        extracted_entities={},  # Will be populated by OCR service later
+        extracted_entities=extracted_entities,
     )
     
     db.add(document)

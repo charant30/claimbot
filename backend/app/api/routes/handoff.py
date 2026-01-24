@@ -11,8 +11,9 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.db import get_db
-from app.db.models import Case, CaseAudit, CaseStatus, ActorType, Claim, User, UserRole
+from app.db.models import Case, CaseAudit, CaseStatus, ActorType, Claim
 from app.core import get_current_user_id, require_role, logger, log_audit_event
+from app.services.session_store import get_session_store
 
 router = APIRouter()
 
@@ -29,6 +30,26 @@ class CreateHandoffRequest(BaseModel):
 class HandoffActionRequest(BaseModel):
     action: str  # "approve", "deny", "request_info"
     notes: str = ""
+    metadata: Dict[str, Any] = {}
+
+
+class DenyCaseRequest(BaseModel):
+    reason: str
+
+
+class RequestInfoRequest(BaseModel):
+    questions: List[str] = []
+    notes: str = ""
+
+
+class AgentMessageRequest(BaseModel):
+    message: str
+
+
+class CaseMessageResponse(BaseModel):
+    role: str
+    content: str
+    created_at: str
     metadata: Dict[str, Any] = {}
 
 
@@ -66,6 +87,74 @@ def case_to_response(case: Case) -> CaseResponse:
         locked_at=case.locked_at.isoformat() if case.locked_at else None,
         is_locked=case.is_locked(),
     )
+
+
+def _get_case_or_404(db: Session, case_id: UUID) -> Case:
+    case = db.query(Case).filter(Case.case_id == case_id).first()
+    if not case:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Case not found",
+        )
+    return case
+
+
+def _ensure_lock(case: Case, user_id: str) -> None:
+    if case.is_locked() and not case.can_be_locked_by(user_id):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Case is locked by another agent",
+        )
+
+
+def _approve_case(case: Case, user_id: str, notes: str, db: Session) -> None:
+    case.status = CaseStatus.RESOLVED
+    case.stage = "approved"
+    case.resolved_at = datetime.utcnow()
+    case.locked_by = None
+    case.locked_at = None
+
+    claim = case.claim
+    from app.db.models import ClaimStatus
+    claim.status = ClaimStatus.APPROVED
+    claim.add_timeline_event("approved", user_id, notes)
+
+    audit = CaseAudit(
+        case_id=case.case_id,
+        event_type="approved",
+        actor_id=user_id,
+        actor_type=ActorType.CELEST,
+        details={"notes": notes},
+    )
+    db.add(audit)
+    db.commit()
+
+    log_audit_event("case_approved", user_id, "celest", {"case_id": str(case.case_id)})
+
+
+def _deny_case(case: Case, user_id: str, reason: str, db: Session) -> None:
+    case.status = CaseStatus.RESOLVED
+    case.stage = "denied"
+    case.resolved_at = datetime.utcnow()
+    case.locked_by = None
+    case.locked_at = None
+
+    claim = case.claim
+    from app.db.models import ClaimStatus
+    claim.status = ClaimStatus.DENIED
+    claim.add_timeline_event("denied", user_id, reason)
+
+    audit = CaseAudit(
+        case_id=case.case_id,
+        event_type="denied",
+        actor_id=user_id,
+        actor_type=ActorType.CELEST,
+        details={"reason": reason},
+    )
+    db.add(audit)
+    db.commit()
+
+    log_audit_event("case_denied", user_id, "celest", {"case_id": str(case.case_id)})
 
 
 @router.post("/create", response_model=CaseResponse)
@@ -153,13 +242,19 @@ async def get_case(
     db: Session = Depends(get_db),
 ):
     """Get case details."""
-    case = db.query(Case).filter(Case.case_id == case_id).first()
-    if not case:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Case not found",
-        )
+    case = _get_case_or_404(db, case_id)
 
+    return case_to_response(case)
+
+
+@router.get("/case/{case_id}", response_model=CaseResponse)
+async def get_case_alias(
+    case_id: UUID,
+    payload: dict = Depends(require_role(["celest", "admin"])),
+    db: Session = Depends(get_db),
+):
+    """Get case details (alias for frontend)."""
+    case = _get_case_or_404(db, case_id)
     return case_to_response(case)
 
 
@@ -230,77 +325,80 @@ async def approve_case(
     db: Session = Depends(get_db),
 ):
     """Approve a case action."""
-    case = db.query(Case).filter(Case.case_id == case_id).first()
-    if not case:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Case not found",
-        )
+    case = _get_case_or_404(db, case_id)
 
     user_id = payload.get("sub")
 
     # Check lock - user must hold lock or case must be unlocked
-    if case.is_locked() and not case.can_be_locked_by(user_id):
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Case is locked by another agent",
-        )
-    
-    case.status = CaseStatus.RESOLVED
-    case.stage = "approved"
-    case.resolved_at = datetime.utcnow()
-    # Release lock when resolved
-    case.locked_by = None
-    case.locked_at = None
-
-    # Update claim status
-    claim = case.claim
-    from app.db.models import ClaimStatus
-    claim.status = ClaimStatus.APPROVED
-    claim.add_timeline_event("approved", user_id, request.notes)
-
-    # Add audit
-    audit = CaseAudit(
-        case_id=case.case_id,
-        event_type="approved",
-        actor_id=user_id,
-        actor_type=ActorType.CELEST,
-        details={"notes": request.notes},
-    )
-    db.add(audit)
-    db.commit()
-
-    log_audit_event("case_approved", user_id, "celest", {"case_id": str(case_id)})
+    _ensure_lock(case, user_id)
+    _approve_case(case, user_id, request.notes, db)
 
     return {"message": "Case approved", "case_id": str(case_id)}
 
 
-@router.post("/{case_id}/request-info")
-async def request_more_info(
+@router.post("/case/{case_id}/approve")
+async def approve_case_alias(
     case_id: UUID,
     request: HandoffActionRequest,
     payload: dict = Depends(require_role(["celest", "admin"])),
     db: Session = Depends(get_db),
 ):
+    """Approve a case action (alias for frontend)."""
+    case = _get_case_or_404(db, case_id)
+    user_id = payload.get("sub")
+    _ensure_lock(case, user_id)
+    _approve_case(case, user_id, request.notes, db)
+    return {"message": "Case approved", "case_id": str(case_id)}
+
+
+@router.post("/{case_id}/deny")
+async def deny_case(
+    case_id: UUID,
+    request: DenyCaseRequest,
+    payload: dict = Depends(require_role(["celest", "admin"])),
+    db: Session = Depends(get_db),
+):
+    """Deny a case action."""
+    case = _get_case_or_404(db, case_id)
+    user_id = payload.get("sub")
+    _ensure_lock(case, user_id)
+    _deny_case(case, user_id, request.reason, db)
+    return {"message": "Case denied", "case_id": str(case_id)}
+
+
+@router.post("/case/{case_id}/deny")
+async def deny_case_alias(
+    case_id: UUID,
+    request: DenyCaseRequest,
+    payload: dict = Depends(require_role(["celest", "admin"])),
+    db: Session = Depends(get_db),
+):
+    """Deny a case action (alias for frontend)."""
+    case = _get_case_or_404(db, case_id)
+    user_id = payload.get("sub")
+    _ensure_lock(case, user_id)
+    _deny_case(case, user_id, request.reason, db)
+    return {"message": "Case denied", "case_id": str(case_id)}
+
+
+@router.post("/{case_id}/request-info")
+async def request_more_info(
+    case_id: UUID,
+    request: RequestInfoRequest,
+    payload: dict = Depends(require_role(["celest", "admin"])),
+    db: Session = Depends(get_db),
+):
     """Request more information from the customer."""
-    case = db.query(Case).filter(Case.case_id == case_id).first()
-    if not case:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Case not found",
-        )
+    case = _get_case_or_404(db, case_id)
 
     user_id = payload.get("sub")
 
     # Check lock
-    if case.is_locked() and not case.can_be_locked_by(user_id):
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Case is locked by another agent",
-        )
+    _ensure_lock(case, user_id)
 
     case.stage = "pending_info"
-    case.case_packet["info_requested"] = request.notes
+    case.case_packet["info_requested"] = request.questions or []
+    case.case_packet["info_notes"] = request.notes
     
     # Add audit
     audit = CaseAudit(
@@ -308,13 +406,43 @@ async def request_more_info(
         event_type="info_requested",
         actor_id=user_id,
         actor_type=ActorType.CELEST,
-        details={"notes": request.notes},
+        details={"notes": request.notes, "questions": request.questions},
     )
     db.add(audit)
     db.commit()
     
     log_audit_event("info_requested", user_id, "celest", {"case_id": str(case_id)})
     
+    return {"message": "Information requested", "case_id": str(case_id)}
+
+
+@router.post("/case/{case_id}/request-info")
+async def request_more_info_alias(
+    case_id: UUID,
+    request: RequestInfoRequest,
+    payload: dict = Depends(require_role(["celest", "admin"])),
+    db: Session = Depends(get_db),
+):
+    """Request more information from the customer (alias for frontend)."""
+    case = _get_case_or_404(db, case_id)
+    user_id = payload.get("sub")
+    _ensure_lock(case, user_id)
+    case.stage = "pending_info"
+    case.case_packet["info_requested"] = request.questions or []
+    case.case_packet["info_notes"] = request.notes
+
+    audit = CaseAudit(
+        case_id=case.case_id,
+        event_type="info_requested",
+        actor_id=user_id,
+        actor_type=ActorType.CELEST,
+        details={"notes": request.notes, "questions": request.questions},
+    )
+    db.add(audit)
+    db.commit()
+
+    log_audit_event("info_requested", user_id, "celest", {"case_id": str(case_id)})
+
     return {"message": "Information requested", "case_id": str(case_id)}
 
 
@@ -325,21 +453,12 @@ async def takeover_chat(
     db: Session = Depends(get_db),
 ):
     """Take over live chat from AI."""
-    case = db.query(Case).filter(Case.case_id == case_id).first()
-    if not case:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Case not found",
-        )
+    case = _get_case_or_404(db, case_id)
 
     user_id = payload.get("sub")
 
     # Check lock - if locked by another agent, reject takeover
-    if case.is_locked() and not case.can_be_locked_by(user_id):
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Case is locked by another agent",
-        )
+    _ensure_lock(case, user_id)
 
     # Acquire lock when taking over
     case.acquire_lock(user_id)
@@ -364,3 +483,136 @@ async def takeover_chat(
         "case_id": str(case_id),
         "thread_id": case.chat_thread_id,
     }
+
+
+@router.post("/case/{case_id}/takeover")
+async def takeover_chat_alias(
+    case_id: UUID,
+    payload: dict = Depends(require_role(["celest", "admin"])),
+    db: Session = Depends(get_db),
+):
+    """Take over live chat from AI (alias for frontend)."""
+    case = _get_case_or_404(db, case_id)
+    user_id = payload.get("sub")
+    _ensure_lock(case, user_id)
+    case.acquire_lock(user_id)
+    case.status = CaseStatus.AGENT_HANDLING
+    case.assigned_to = user_id
+
+    audit = CaseAudit(
+        case_id=case.case_id,
+        event_type="takeover",
+        actor_id=user_id,
+        actor_type=ActorType.CELEST,
+        details={},
+    )
+    db.add(audit)
+    db.commit()
+
+    log_audit_event("chat_takeover", user_id, "celest", {"case_id": str(case_id)})
+
+    return {
+        "message": "Chat takeover successful",
+        "case_id": str(case_id),
+        "thread_id": case.chat_thread_id,
+    }
+
+
+@router.get("/case/{case_id}/messages", response_model=List[CaseMessageResponse])
+async def get_case_messages(
+    case_id: UUID,
+    payload: dict = Depends(require_role(["celest", "admin"])),
+    db: Session = Depends(get_db),
+):
+    """Get case messages for agent view."""
+    case = _get_case_or_404(db, case_id)
+    session_store = get_session_store()
+    session = session_store.get(case.chat_thread_id)
+    if not session:
+        return []
+    return [
+        CaseMessageResponse(
+            role=msg.get("role", "assistant"),
+            content=msg.get("content", ""),
+            created_at=msg.get("created_at", ""),
+            metadata=msg.get("metadata", {}),
+        )
+        for msg in session.get("messages", [])
+    ]
+
+
+@router.post("/case/{case_id}/message", response_model=CaseMessageResponse)
+async def send_case_message(
+    case_id: UUID,
+    request: AgentMessageRequest,
+    payload: dict = Depends(require_role(["celest", "admin"])),
+    db: Session = Depends(get_db),
+):
+    """Send an agent message during takeover."""
+    case = _get_case_or_404(db, case_id)
+    user_id = payload.get("sub")
+    _ensure_lock(case, user_id)
+
+    session_store = get_session_store()
+    session = session_store.get(case.chat_thread_id) or {
+        "thread_id": case.chat_thread_id,
+        "messages": [],
+    }
+
+    message = {
+        "message_id": str(uuid_lib.uuid4()),
+        "role": "agent",
+        "content": request.message,
+        "metadata": {"actor_id": user_id},
+        "created_at": datetime.utcnow().isoformat(),
+    }
+    session["messages"].append(message)
+    session_store.set(case.chat_thread_id, session, ttl_hours=24)
+
+    audit = CaseAudit(
+        case_id=case.case_id,
+        event_type="agent_message",
+        actor_id=user_id,
+        actor_type=ActorType.CELEST,
+        details={"message_id": message["message_id"]},
+    )
+    db.add(audit)
+    db.commit()
+
+    return CaseMessageResponse(
+        role=message["role"],
+        content=message["content"],
+        created_at=message["created_at"],
+        metadata=message["metadata"],
+    )
+
+
+@router.post("/case/{case_id}/release")
+async def release_case(
+    case_id: UUID,
+    payload: dict = Depends(require_role(["celest", "admin"])),
+    db: Session = Depends(get_db),
+):
+    """Release case back to AI handling."""
+    case = _get_case_or_404(db, case_id)
+    user_id = payload.get("sub")
+    _ensure_lock(case, user_id)
+
+    case.status = CaseStatus.AI_HANDLING
+    case.stage = "ai_handling"
+    case.assigned_to = None
+    case.release_lock(user_id)
+
+    audit = CaseAudit(
+        case_id=case.case_id,
+        event_type="released",
+        actor_id=user_id,
+        actor_type=ActorType.CELEST,
+        details={},
+    )
+    db.add(audit)
+    db.commit()
+
+    log_audit_event("case_released", user_id, "celest", {"case_id": str(case_id)})
+
+    return {"message": "Case released", "case_id": str(case_id)}

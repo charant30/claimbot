@@ -298,6 +298,119 @@
     font-size: 0.85rem;
 }
 
+/* Claim intake + document upload */
+.claim-form,
+.document-panel {
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    padding: 16px;
+    margin: 12px 0;
+    box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
+}
+
+.claim-form h4,
+.document-panel h4 {
+    margin: 0 0 4px;
+    font-size: 16px;
+    color: #111827;
+}
+
+.claim-form-subtitle,
+.document-panel-subtitle {
+    margin: 0 0 12px;
+    font-size: 13px;
+    color: #6b7280;
+}
+
+.claim-form label {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: 13px;
+    color: #374151;
+    margin-bottom: 10px;
+}
+
+.claim-form input,
+.claim-form select,
+.claim-form textarea {
+    border: 1px solid #d1d5db;
+    border-radius: 8px;
+    padding: 8px 10px;
+    font-size: 14px;
+}
+
+.claim-form button {
+    width: 100%;
+    padding: 10px 14px;
+    border-radius: 8px;
+    border: none;
+    background: #2563eb;
+    color: #fff;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.claim-form button:disabled {
+    background: #93c5fd;
+    cursor: not-allowed;
+}
+
+.document-actions {
+    display: grid;
+    gap: 8px;
+}
+
+.document-upload {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 12px;
+    border: 1px dashed #cbd5f5;
+    border-radius: 10px;
+    font-size: 14px;
+    background: #f8fafc;
+    cursor: pointer;
+}
+
+.document-upload input {
+    display: none;
+}
+
+.document-list {
+    margin-top: 12px;
+}
+
+.document-list ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 6px;
+}
+
+.document-list li {
+    display: grid;
+    grid-template-columns: 1fr auto auto;
+    gap: 8px;
+    font-size: 12px;
+    padding: 6px 8px;
+    border-radius: 8px;
+    background: #f9fafb;
+    border: 1px solid #e5e7eb;
+}
+
+.doc-name {
+    font-weight: 600;
+    color: #111827;
+}
+
+.doc-type,
+.doc-status {
+    color: #6b7280;
+}
+
 /* Responsive */
 @media (max-width: 480px) {
     .chat-widget {

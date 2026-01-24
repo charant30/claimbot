@@ -2,12 +2,15 @@ import { useState, useRef, useEffect } from 'react'
 import { useChatStore, PRODUCT_OPTIONS, INTENT_OPTIONS } from '../stores/chatStore'
 import { useAuthStore } from '../stores/authStore'
 import GuestForm from './GuestForm'
+import ClaimIntakeForm from './ClaimIntakeForm'
+import DocumentUploadPanel from './DocumentUploadPanel'
 import './ChatWidget.css'
 
 function ChatWidget() {
     const {
         isOpen, toggleChat, messages, isLoading, sendMessage,
-        startSession, threadId, flowStage, selectProduct, selectIntent
+        startSession, threadId, flowStage, selectProduct, selectIntent,
+        submitClaimForm, uploadDocument, claimId, documents
     } = useChatStore()
     const { isAuthenticated } = useAuthStore()
     const [input, setInput] = useState('')
@@ -130,6 +133,19 @@ function ChatWidget() {
                                 </div>
                             )}
 
+                            {flowStage === 'claim_form' && (
+                                <ClaimIntakeForm onSubmit={submitClaimForm} isLoading={isLoading} />
+                            )}
+
+                            {flowStage === 'document_upload' && claimId && (
+                                <DocumentUploadPanel
+                                    claimId={claimId}
+                                    documents={documents}
+                                    isLoading={isLoading}
+                                    onUpload={uploadDocument}
+                                />
+                            )}
+
                             {isLoading && (
                                 <div className="message assistant">
                                     <div className="message-content typing">
@@ -141,7 +157,7 @@ function ChatWidget() {
                         </div>
 
                         {/* Only show input when in conversation mode */}
-                        {flowStage === 'conversation' && (
+                        {(flowStage === 'conversation' || flowStage === 'document_upload') && (
                             <form className="chat-input-form" onSubmit={handleSubmit}>
                                 <input
                                     type="text"

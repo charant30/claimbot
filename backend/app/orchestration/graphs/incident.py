@@ -122,23 +122,63 @@ def collect_incident_info(state: ConversationState) -> ConversationState:
 def calculate_incident_payout(state: ConversationState) -> ConversationState:
     """Calculate payout using deterministic engine."""
     from app.services.calculation import calculate_incident_payout as calc_payout
+    from app.db import SessionLocal
+    from app.db.models import Policy
+    from app.services.policy_validation import get_policy_validation_service
     
     collected = state.get("collected_fields", {})
+    user_id = state.get("user_id")
+    policy_id = state.get("policy_id")
+    product_line = state.get("product_line", "auto")
     
     # Get loss amount from collected fields
     loss_amount = Decimal(str(collected.get("estimated_damage", collected.get("loss_amount", 0))))
-    
-    # Simplified - in production, lookup policy coverages
-    deductible = Decimal("500")
-    coverage_limit = Decimal("50000")
-    
-    result = calc_payout(
-        loss_amount=loss_amount,
-        deductible=deductible,
-        coverage_limit=coverage_limit,
-        exclusions=[],
-        incident_type=collected.get("incident_type", "collision"),
-    )
+
+    db = SessionLocal()
+    try:
+        policy = None
+        if policy_id:
+            policy = db.query(Policy).filter(Policy.policy_id == policy_id).first()
+        if not policy and user_id:
+            validator = get_policy_validation_service(db)
+            validation = validator.validate_claim_eligibility(user_id, product_line)
+            policy = validation.policy
+        if not policy:
+            return {
+                **state,
+                "should_escalate": True,
+                "escalation_reason": "Missing policy coverage data",
+                "ai_response": "I need a specialist to review your policy before calculating the payout.",
+                "next_step": "respond",
+            }
+
+        validator = get_policy_validation_service(db)
+        incident_type = collected.get("incident_type", "collision")
+        coverage = validator.get_coverage_for_claim(policy, incident_type)
+        if not coverage and product_line == "home":
+            coverage = (
+                validator.get_coverage_for_claim(policy, "dwelling")
+                or validator.get_coverage_for_claim(policy, "property")
+            )
+        coverage = coverage or validator.get_primary_coverage(policy)
+        if not coverage:
+            return {
+                **state,
+                "should_escalate": True,
+                "escalation_reason": "No matching coverage found",
+                "ai_response": "I couldn't find a matching coverage for this incident. I'll connect you with a specialist.",
+                "next_step": "respond",
+            }
+
+        result = calc_payout(
+            loss_amount=loss_amount,
+            deductible=coverage.deductible,
+            coverage_limit=coverage.limit_amount,
+            exclusions=coverage.exclusions or [],
+            incident_type=incident_type,
+        )
+    finally:
+        db.close()
     
     logger.info(f"Calculated payout: ${result.payout_amount}")
     
@@ -149,6 +189,7 @@ def calculate_incident_payout(state: ConversationState) -> ConversationState:
             "deductible_applied": float(result.deductible_applied),
             "is_total_loss": result.is_total_loss,
             "breakdown": result.breakdown,
+            "coverage_limit": float(result.coverage_limit),
         },
         "next_step": "summarize_claim",
     }
@@ -158,10 +199,12 @@ def summarize_incident_claim(state: ConversationState) -> ConversationState:
     """Summarize the claim for customer."""
     collected = state.get("collected_fields", {})
     calc_result = state.get("calculation_result", {})
+    flow_settings = state.get("flow_settings") or {}
 
     # Check if high value claim needs escalation
     payout_amount = calc_result.get("payout_amount", 0)
-    should_escalate = payout_amount > 5000
+    auto_approval_limit = flow_settings.get("auto_approval_limit", 5000)
+    should_escalate = payout_amount > auto_approval_limit
 
     if should_escalate:
         summary = f"""Based on the information you provided, here's a summary of your claim:

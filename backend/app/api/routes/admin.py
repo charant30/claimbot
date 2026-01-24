@@ -24,6 +24,7 @@ class LLMSettingsRequest(BaseModel):
     llm_provider: str  # "bedrock" or "ollama"
     bedrock_model: Optional[str] = None
     ollama_model: Optional[str] = None
+    ollama_vision_model: Optional[str] = None
     ollama_endpoint: Optional[str] = None
 
 
@@ -31,6 +32,7 @@ class LLMSettingsResponse(BaseModel):
     llm_provider: str
     bedrock_model: str
     ollama_model: str
+    ollama_vision_model: str
     ollama_endpoint: str
 
 
@@ -86,6 +88,7 @@ async def get_llm_settings(
         llm_provider=get_setting(db, "llm_provider", "ollama"),
         bedrock_model=get_setting(db, "bedrock_model", "anthropic.claude-3-sonnet-20240229-v1:0"),
         ollama_model=get_setting(db, "ollama_model", "llama3"),
+        ollama_vision_model=get_setting(db, "ollama_vision_model", "llava"),
         ollama_endpoint=get_setting(db, "ollama_endpoint", "http://localhost:11434"),
     )
 
@@ -111,6 +114,8 @@ async def update_llm_settings(
         set_setting(db, "bedrock_model", request.bedrock_model, user_id)
     if request.ollama_model:
         set_setting(db, "ollama_model", request.ollama_model, user_id)
+    if request.ollama_vision_model:
+        set_setting(db, "ollama_vision_model", request.ollama_vision_model, user_id)
     if request.ollama_endpoint:
         set_setting(db, "ollama_endpoint", request.ollama_endpoint, user_id)
     
