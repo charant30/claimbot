@@ -137,8 +137,12 @@ def calculate_incident_payout(state: ConversationState) -> ConversationState:
     db = SessionLocal()
     try:
         policy = None
-        if policy_id:
-            policy = db.query(Policy).filter(Policy.policy_id == policy_id).first()
+        if policy_id and user_id:
+            policy = (
+                db.query(Policy)
+                .filter(Policy.policy_id == policy_id, Policy.user_id == user_id)
+                .first()
+            )
         if not policy and user_id:
             validator = get_policy_validation_service(db)
             validation = validator.validate_claim_eligibility(user_id, product_line)

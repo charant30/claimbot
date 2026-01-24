@@ -180,8 +180,12 @@ def adjudicate_medical_claim(state: ConversationState) -> ConversationState:
         policy = None
         policy_id = state.get("policy_id")
         user_id = state.get("user_id")
-        if policy_id:
-            policy = db.query(Policy).filter(Policy.policy_id == policy_id).first()
+        if policy_id and user_id:
+            policy = (
+                db.query(Policy)
+                .filter(Policy.policy_id == policy_id, Policy.user_id == user_id)
+                .first()
+            )
         if not policy and user_id:
             validator = get_policy_validation_service(db)
             validation = validator.validate_claim_eligibility(user_id, "medical")

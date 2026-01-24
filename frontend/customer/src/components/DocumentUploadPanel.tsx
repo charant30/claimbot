@@ -46,7 +46,7 @@ function DocumentUploadPanel({ claimId, documents, isLoading, onUpload }: Docume
                             data-doc-type={type.value}
                             onChange={handleFileChange}
                             disabled={isLoading}
-                            accept="image/*,.pdf"
+                            accept="image/*"
                         />
                     </label>
                 ))}

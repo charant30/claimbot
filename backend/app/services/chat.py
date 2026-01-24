@@ -76,12 +76,20 @@ class ChatService:
 
         intent = metadata.get("intent")
         product_line = metadata.get("product_line")
+        claim_id = metadata.get("claim_id")
+        policy_id = metadata.get("policy_id")
 
         if intent and not state.get("intent"):
             state["intent"] = intent
 
         if product_line and not state.get("product_line"):
             state["product_line"] = product_line
+
+        if claim_id and not state.get("claim_id"):
+            state["claim_id"] = claim_id
+
+        if policy_id and not state.get("policy_id"):
+            state["policy_id"] = policy_id
 
         if state.get("intent") and state.get("product_line") and not state.get("required_fields"):
             required = get_required_fields(state["intent"], state["product_line"])
@@ -149,6 +157,7 @@ class ChatService:
                 "response": result.get("ai_response", "I'm sorry, I couldn't process that."),
                 "intent": result.get("intent"),
                 "product_line": result.get("product_line"),
+                "claim_id": result.get("claim_id"),
                 "should_escalate": result.get("should_escalate", False),
                 "escalation_reason": result.get("escalation_reason"),
                 "collected_fields": result.get("collected_fields", {}),

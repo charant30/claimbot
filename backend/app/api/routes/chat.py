@@ -133,6 +133,9 @@ async def send_message(
             "intent": result.get("intent"),
             "product_line": result.get("product_line"),
             "should_escalate": result.get("should_escalate", False),
+            "escalation_reason": result.get("escalation_reason"),
+            "claim_id": result.get("claim_id") or request.metadata.get("claim_id"),
+            "claim_number": request.metadata.get("claim_number"),
         },
     }
     session["messages"].append(assistant_msg)
