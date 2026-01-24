@@ -36,6 +36,7 @@ class Settings(BaseSettings):
     # Ollama
     OLLAMA_BASE_URL: str = "http://localhost:11434"
     OLLAMA_MODEL: str = "llama3"
+    OLLAMA_VISION_MODEL: str = "llava"
 
     # JWT
     JWT_ALGORITHM: str = "HS256"

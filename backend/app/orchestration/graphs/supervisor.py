@@ -2,6 +2,7 @@
 Supervisor Graph - Main orchestration for claims chatbot
 """
 from typing import Literal, Optional
+from datetime import datetime
 from langgraph.graph import StateGraph, END
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 
@@ -196,6 +197,52 @@ def route_to_subgraph(state: ConversationState) -> ConversationState:
         return {**state, "next_step": "incident_subgraph"}
 
 
+def route_agents(state: ConversationState) -> ConversationState:
+    """Route to agent pipeline for multi-step validation."""
+    if state.get("intent") == ClaimIntent.FILE_CLAIM.value:
+        return {**state, "next_step": "agent_intake"}
+    return {**state, "next_step": "route_to_subgraph"}
+
+
+def _append_agent_trace(state: ConversationState, agent: str, output: dict = None) -> ConversationState:
+    trace = state.get("agent_trace") or []
+    trace.append({
+        "agent": agent,
+        "input": {
+            "intent": state.get("intent"),
+            "product_line": state.get("product_line"),
+            "current_input": state.get("current_input"),
+        },
+        "output": output or {},
+        "timestamp": datetime.utcnow().isoformat(),
+    })
+    return {**state, "agent_trace": trace}
+
+
+def agent_intake(state: ConversationState) -> ConversationState:
+    """Stub intake agent - validates and enriches intake data."""
+    state = _append_agent_trace(state, "agent_intake", {"status": "ok"})
+    return {**state, "next_step": "agent_documents"}
+
+
+def agent_documents(state: ConversationState) -> ConversationState:
+    """Stub document agent - evaluates uploaded documents."""
+    state = _append_agent_trace(state, "agent_documents", {"status": "pending_documents"})
+    return {**state, "next_step": "agent_policy"}
+
+
+def agent_policy(state: ConversationState) -> ConversationState:
+    """Stub policy agent - checks policy coverage and deductibles."""
+    state = _append_agent_trace(state, "agent_policy", {"status": "policy_checked"})
+    return {**state, "next_step": "agent_decision"}
+
+
+def agent_decision(state: ConversationState) -> ConversationState:
+    """Stub decision agent - reconciles findings and routes onward."""
+    state = _append_agent_trace(state, "agent_decision", {"status": "decision_ready"})
+    return {**state, "next_step": "route_to_subgraph"}
+
+
 def generate_response(state: ConversationState) -> ConversationState:
     """Generate conversational response."""
     llm = get_llm()
@@ -237,11 +284,32 @@ def generate_response(state: ConversationState) -> ConversationState:
 
 def check_escalation(state: ConversationState) -> ConversationState:
     """Check if escalation is needed."""
+    if state.get("should_escalate"):
+        reason = state.get("escalation_reason") or "Escalation requested"
+        return {
+            **state,
+            "should_escalate": True,
+            "escalation_reason": reason,
+            "case_packet": {
+                "thread_id": state.get("thread_id"),
+                "user_id": state.get("user_id"),
+                "policy_id": state.get("policy_id"),
+                "intent": state.get("intent"),
+                "collected_fields": state.get("collected_fields"),
+                "calculation_result": state.get("calculation_result"),
+                "reason": reason,
+            },
+            "next_step": "escalate",
+        }
+
+    flow_settings = state.get("flow_settings") or {}
+    confidence_threshold = flow_settings.get("confidence_threshold", 0.7)
+    auto_approval_limit = flow_settings.get("auto_approval_limit", 5000)
     should_escalate = False
     reason = None
     
     # Check confidence threshold
-    if state.get("confidence", 1.0) < 0.7:
+    if state.get("confidence", 1.0) < confidence_threshold:
         should_escalate = True
         reason = "Low confidence in processing"
     
@@ -252,7 +320,7 @@ def check_escalation(state: ConversationState) -> ConversationState:
     
     # Check for high-value claims
     calc_result = state.get("calculation_result") or {}
-    if calc_result.get("payout_amount", 0) > 5000:
+    if calc_result.get("payout_amount", 0) > auto_approval_limit:
         should_escalate = True
         reason = "High-value claim requires review"
     
@@ -321,6 +389,11 @@ def build_supervisor_graph() -> StateGraph:
     workflow.add_node("classify_product", classify_product)
     workflow.add_node("ask_product", ask_product)
     workflow.add_node("route_to_subgraph", route_to_subgraph)
+    workflow.add_node("route_agents", route_agents)
+    workflow.add_node("agent_intake", agent_intake)
+    workflow.add_node("agent_documents", agent_documents)
+    workflow.add_node("agent_policy", agent_policy)
+    workflow.add_node("agent_decision", agent_decision)
     
     # Add subgraph nodes
     workflow.add_node("incident_subgraph", incident_graph)
@@ -350,10 +423,24 @@ def build_supervisor_graph() -> StateGraph:
         "classify_product",
         route_next,
         {
-            "route_to_subgraph": "route_to_subgraph",
+            "route_to_subgraph": "route_agents",
             "ask_product": "ask_product",
         }
     )
+
+    workflow.add_conditional_edges(
+        "route_agents",
+        route_next,
+        {
+            "agent_intake": "agent_intake",
+            "route_to_subgraph": "route_to_subgraph",
+        }
+    )
+
+    workflow.add_edge("agent_intake", "agent_documents")
+    workflow.add_edge("agent_documents", "agent_policy")
+    workflow.add_edge("agent_policy", "agent_decision")
+    workflow.add_edge("agent_decision", "route_to_subgraph")
     
     workflow.add_edge("ask_product", "respond")
     

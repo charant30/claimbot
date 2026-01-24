@@ -166,18 +166,62 @@ def check_provider_network_status(state: ConversationState) -> ConversationState
 def adjudicate_medical_claim(state: ConversationState) -> ConversationState:
     """Adjudicate the medical claim using deterministic engine."""
     from app.services.calculation import adjudicate_medical_claim as adjudicate
+    from app.db import SessionLocal
+    from app.db.models import Policy
+    from app.services.policy_validation import get_policy_validation_service
     
     collected = state.get("collected_fields", {})
     
     billed_amount = Decimal(str(collected.get("billed_amount", 0)))
     is_in_network = collected.get("is_in_network", True)
     
-    # Simplified - in production, lookup from Provider and Policy
-    allowed_amount = billed_amount * Decimal("0.80") if is_in_network else Decimal("0")
-    copay = Decimal("40")
-    deductible_remaining = Decimal("500")
-    coinsurance_pct = Decimal("20")
-    coverage_limit = Decimal("100000")
+    db = SessionLocal()
+    try:
+        policy = None
+        policy_id = state.get("policy_id")
+        user_id = state.get("user_id")
+        if policy_id and user_id:
+            policy = (
+                db.query(Policy)
+                .filter(Policy.policy_id == policy_id, Policy.user_id == user_id)
+                .first()
+            )
+        if not policy and user_id:
+            validator = get_policy_validation_service(db)
+            validation = validator.validate_claim_eligibility(user_id, "medical")
+            policy = validation.policy
+        if not policy:
+            return {
+                **state,
+                "should_escalate": True,
+                "escalation_reason": "Missing policy coverage data",
+                "ai_response": "I need a specialist to review your medical coverage before calculating benefits.",
+                "next_step": "respond",
+            }
+
+        validator = get_policy_validation_service(db)
+        coverage = (
+            validator.get_coverage_for_claim(policy, "hospital")
+            or validator.get_coverage_for_claim(policy, "physician")
+            or validator.get_primary_coverage(policy)
+        )
+        if not coverage:
+            return {
+                **state,
+                "should_escalate": True,
+                "escalation_reason": "No medical coverage found",
+                "ai_response": "I couldn't find medical coverage on this policy. I'll connect you with a specialist.",
+                "next_step": "respond",
+            }
+
+        # Simplified - in production, lookup from Provider and Policy
+        allowed_amount = billed_amount * Decimal("0.80") if is_in_network else Decimal("0")
+        copay = Decimal(str(coverage.copay))
+        deductible_remaining = Decimal(str(coverage.deductible))
+        coinsurance_pct = Decimal(str(coverage.coinsurance_pct))
+        coverage_limit = Decimal(str(coverage.limit_amount))
+    finally:
+        db.close()
     
     result = adjudicate(
         billed_amount=billed_amount,

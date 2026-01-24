@@ -51,6 +51,12 @@ class ConversationState(TypedDict):
     should_escalate: bool
     escalation_reason: Optional[str]
     case_packet: Optional[dict]
+
+    # Admin-configured flow settings
+    flow_settings: Optional[dict]
+
+    # Agent trace for multi-step orchestration
+    agent_trace: List[dict]
     
     # Control
     next_step: str
@@ -81,6 +87,8 @@ def create_initial_state(
         should_escalate=False,
         escalation_reason=None,
         case_packet=None,
+        flow_settings=None,
+        agent_trace=[],
         next_step="classify_intent",
         is_complete=False,
     )
@@ -91,11 +99,12 @@ REQUIRED_FIELDS = {
     "file_claim": {
         "auto": [
             "incident_date", "incident_location", "incident_description",
-            "vehicle_info", "other_party_info", "police_report_number",
+            "incident_type", "estimated_damage", "vehicle_info",
+            "other_party_info", "police_report_number",
         ],
         "home": [
-            "incident_date", "incident_type", "incident_description",
-            "affected_areas", "estimated_damage",
+            "incident_date", "incident_type", "incident_location",
+            "incident_description", "affected_areas", "estimated_damage",
         ],
         "medical": [
             "service_date", "provider_name", "provider_npi",

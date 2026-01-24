@@ -123,7 +123,7 @@ async def create_claim(
         claim_number=generate_claim_number(claim_type),
         claim_type=claim_type,
         incident_date=date.fromisoformat(request.incident_date),
-        metadata=request.metadata,
+        claim_metadata=request.metadata,
         timeline=[],
     )
     claim.add_timeline_event("created", user_id, "Claim initiated")
@@ -150,7 +150,7 @@ async def create_claim(
         reserves=float(claim.reserves),
         paid_amount=float(claim.paid_amount),
         timeline=claim.timeline,
-        metadata=claim.metadata,
+        metadata=claim.claim_metadata,
         created_at=claim.created_at.isoformat(),
     )
 
@@ -181,7 +181,7 @@ async def get_my_claims(
             reserves=float(c.reserves),
             paid_amount=float(c.paid_amount),
             timeline=c.timeline or [],
-            metadata=c.metadata or {},
+            metadata=c.claim_metadata or {},
             created_at=c.created_at.isoformat(),
         )
         for c in claims
@@ -219,7 +219,7 @@ async def get_claim(
         reserves=float(claim.reserves),
         paid_amount=float(claim.paid_amount),
         timeline=claim.timeline or [],
-        metadata=claim.metadata or {},
+        metadata=claim.claim_metadata or {},
         created_at=claim.created_at.isoformat(),
     )
 
@@ -254,7 +254,7 @@ async def update_claim(
         claim.loss_amount = request.loss_amount
     
     if request.metadata:
-        claim.metadata = {**(claim.metadata or {}), **request.metadata}
+        claim.claim_metadata = {**(claim.claim_metadata or {}), **request.metadata}
     
     db.commit()
     db.refresh(claim)
@@ -277,6 +277,6 @@ async def update_claim(
         reserves=float(claim.reserves),
         paid_amount=float(claim.paid_amount),
         timeline=claim.timeline or [],
-        metadata=claim.metadata or {},
+        metadata=claim.claim_metadata or {},
         created_at=claim.created_at.isoformat(),
     )

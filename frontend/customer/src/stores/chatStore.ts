@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { chatApi } from '../services/api'
+import { chatApi, claimsApi, documentsApi, policiesApi } from '../services/api'
 
 interface Message {
     id: string
@@ -10,7 +10,23 @@ interface Message {
 }
 
 // Conversation flow stages
-type FlowStage = 'product_selection' | 'intent_selection' | 'conversation'
+type FlowStage = 'product_selection' | 'intent_selection' | 'claim_form' | 'document_upload' | 'conversation'
+
+type ClaimFormData = {
+    policyNumber: string
+    incidentDate: string
+    incidentType: string
+    location: string
+    description: string
+    estimatedLoss: string
+}
+
+type DocumentItem = {
+    doc_id: string
+    doc_type: string
+    filename: string
+    extracted_entities?: Record<string, any>
+}
 
 interface ChatState {
     isOpen: boolean
@@ -18,6 +34,9 @@ interface ChatState {
     messages: Message[]
     isLoading: boolean
     policyId: string | null
+    claimId: string | null
+    claimNumber: string | null
+    documents: DocumentItem[]
 
     // Guided flow state
     flowStage: FlowStage
@@ -31,6 +50,8 @@ interface ChatState {
     sendMessage: (content: string, metadata?: Record<string, any>) => Promise<void>
     selectProduct: (product: string) => void
     selectIntent: (intent: string) => Promise<void>
+    submitClaimForm: (data: ClaimFormData) => Promise<void>
+    uploadDocument: (docType: string, file: File) => Promise<void>
     clearChat: () => void
     setPolicyId: (policyId: string | null) => void
 }
@@ -56,6 +77,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
     messages: [],
     isLoading: false,
     policyId: null,
+    claimId: null,
+    claimNumber: null,
+    documents: [],
     flowStage: 'product_selection',
     productLine: null,
     intent: null,
@@ -76,6 +100,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
                     timestamp: new Date(),
                 }],
                 policyId: policyId || null,
+                claimId: null,
+                claimNumber: null,
+                documents: [],
                 flowStage: 'product_selection',
                 productLine: null,
                 intent: null,
@@ -152,6 +179,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
                     },
                 ],
                 isLoading: false,
+                flowStage: intent === 'file_claim' ? 'claim_form' : 'conversation',
             }))
         } catch (error) {
             console.error('Failed to send intent:', error)
@@ -162,6 +190,164 @@ export const useChatStore = create<ChatState>((set, get) => ({
                         id: `error-${Date.now()}`,
                         role: 'assistant',
                         content: "I'm sorry, I encountered an error. Please try again.",
+                        timestamp: new Date(),
+                    },
+                ],
+                isLoading: false,
+                flowStage: 'conversation',
+            }))
+        }
+    },
+
+    submitClaimForm: async (data: ClaimFormData) => {
+        const { policyId, threadId } = get()
+        set({ isLoading: true })
+
+        try {
+            let resolvedPolicyId = policyId
+
+            if (!resolvedPolicyId && data.policyNumber) {
+                const policy = await policiesApi.lookupPolicy(data.policyNumber)
+                resolvedPolicyId = policy.policy_id
+                set({ policyId: resolvedPolicyId })
+            }
+
+            if (!resolvedPolicyId) {
+                throw new Error('Missing policy')
+            }
+
+            const claim = await claimsApi.createClaim({
+                policy_id: resolvedPolicyId,
+                claim_type: 'incident',
+                incident_date: data.incidentDate,
+                metadata: {
+                    incident_type: data.incidentType,
+                    location: data.location,
+                    description: data.description,
+                    estimated_loss: Number(data.estimatedLoss),
+                },
+            })
+
+            set({
+                claimId: claim.claim_id,
+                claimNumber: claim.claim_number,
+                flowStage: 'document_upload',
+            })
+
+            if (threadId) {
+                await chatApi.sendMessage(
+                    threadId,
+                    `Submitted claim details for policy ${data.policyNumber}.`,
+                    {
+                        claim_id: claim.claim_id,
+                        claim_number: claim.claim_number,
+                        claim_form: data,
+                    }
+                ).then((response) => {
+                    set((state) => ({
+                        messages: [
+                            ...state.messages,
+                            {
+                                id: response.message_id,
+                                role: 'assistant',
+                                content: response.content,
+                                timestamp: new Date(),
+                                metadata: response.metadata,
+                            },
+                        ],
+                    }))
+                })
+            } else {
+                set((state) => ({
+                    messages: [
+                        ...state.messages,
+                        {
+                            id: `bot-${Date.now()}`,
+                            role: 'assistant',
+                            content: `Thanks! Your claim ${claim.claim_number} is started. Please upload supporting documents.`,
+                            timestamp: new Date(),
+                        },
+                    ],
+                }))
+            }
+
+            set({ isLoading: false })
+        } catch (error) {
+            console.error('Failed to submit claim form:', error)
+            set((state) => ({
+                messages: [
+                    ...state.messages,
+                    {
+                        id: `error-${Date.now()}`,
+                        role: 'assistant',
+                        content: "I couldn't start the claim. Please double-check your policy number and try again.",
+                        timestamp: new Date(),
+                    },
+                ],
+                isLoading: false,
+            }))
+        }
+    },
+
+    uploadDocument: async (docType: string, file: File) => {
+        const { claimId, threadId } = get()
+        if (!claimId) {
+            return
+        }
+
+        set({ isLoading: true })
+
+        try {
+            const response = await documentsApi.upload(claimId, docType, file)
+            set((state) => ({
+                documents: [...state.documents, response],
+            }))
+
+            if (threadId) {
+                const message = `Uploaded ${docType.replace('_', ' ')} document: ${file.name}`
+                const chatResponse = await chatApi.sendMessage(threadId, message, {
+                    claim_id: claimId,
+                    document_id: response.doc_id,
+                    doc_type: response.doc_type,
+                    extracted_entities: response.extracted_entities,
+                })
+
+                set((state) => ({
+                    messages: [
+                        ...state.messages,
+                        {
+                            id: chatResponse.message_id,
+                            role: 'assistant',
+                            content: chatResponse.content,
+                            timestamp: new Date(),
+                            metadata: chatResponse.metadata,
+                        },
+                    ],
+                }))
+            } else {
+                set((state) => ({
+                    messages: [
+                        ...state.messages,
+                        {
+                            id: `bot-${Date.now()}`,
+                            role: 'assistant',
+                            content: `Document received: ${file.name}. We'll review it shortly.`,
+                            timestamp: new Date(),
+                        },
+                    ],
+                }))
+            }
+
+            set({ isLoading: false })
+        } catch (error) {
+            console.error('Failed to upload document:', error)
+            set((state) => ({
+                messages: [
+                    ...state.messages,
+                    {
+                        id: `error-${Date.now()}`,
+                        role: 'assistant',
+                        content: 'Document upload failed. Please try again.',
                         timestamp: new Date(),
                     },
                 ],
@@ -233,6 +419,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
         threadId: null,
         messages: [],
         policyId: null,
+        claimId: null,
+        claimNumber: null,
+        documents: [],
         flowStage: 'product_selection',
         productLine: null,
         intent: null,
