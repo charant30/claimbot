@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.core import logger, settings
 from app.db.models import SystemSettings
+from app.services.ocr_schemas import get_extraction_prompt_for_doc_type, validate_extraction
 
 
 def _get_setting(db: Optional[Session], key: str, default: Any) -> Any:
@@ -46,9 +47,8 @@ async def extract_document_entities(
     if not content_type or not content_type.startswith("image/"):
         return {"status": "skipped", "reason": "unsupported_content_type"}
 
-    ollama_endpoint = _get_setting(db, "ollama_endpoint", settings.OLLAMA_BASE_URL).rstrip("/")
-    vision_model = _get_setting(db, "ollama_vision_model", settings.OLLAMA_VISION_MODEL)
-
+    llm_provider = _get_setting(db, "llm_provider", "ollama")
+    
     try:
         with open(file_path, "rb") as f:
             encoded = base64.b64encode(f.read()).decode("utf-8")
@@ -56,39 +56,95 @@ async def extract_document_entities(
         logger.error(f"OCR read failed for {file_path}: {exc}")
         return {"status": "error", "reason": "file_read_failed"}
 
-    prompt = (
-        "You are an OCR extraction assistant. "
-        f"Extract structured details from the uploaded {doc_type} document. "
-        "Return ONLY valid JSON with keys: summary, dates, parties, amounts, "
-        "document_ids, incident_location, and confidence (0-1). "
-        "Use null when data is missing."
-    )
+    # Get document-specific extraction prompt
+    prompt_text = get_extraction_prompt_for_doc_type(doc_type)
 
-    payload = {
-        "model": vision_model,
-        "messages": [
-            {
-                "role": "user",
-                "content": prompt,
-                "images": [encoded],
-            }
-        ],
-        "stream": False,
-    }
+    content = ""
 
-    try:
-        async with httpx.AsyncClient(timeout=45.0) as client:
-            response = await client.post(f"{ollama_endpoint}/api/chat", json=payload)
-            response.raise_for_status()
-    except httpx.HTTPError as exc:
-        logger.error(f"OCR request failed: {exc}")
-        return {"status": "error", "reason": "request_failed"}
+    if llm_provider == "bedrock":
+        import boto3
+        bedrock_runtime = boto3.client(
+            service_name="bedrock-runtime",
+            region_name=settings.AWS_REGION if hasattr(settings, "AWS_REGION") else "us-east-1"
+        )
+        
+        # Claude 3 Sonnet (or Haiku) model ID
+        model_id = _get_setting(db, "bedrock_model", "anthropic.claude-3-sonnet-20240229-v1:0")
+        
+        bedrock_payload = {
+            "anthropic_version": "bedrock-2023-05-31",
+            "max_tokens": 4096,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": content_type,
+                                "data": encoded,
+                            },
+                        },
+                        {
+                            "type": "text",
+                            "text": prompt_text,
+                        }
+                    ],
+                }
+            ],
+        }
+        
+        try:
+            response = bedrock_runtime.invoke_model(
+                modelId=model_id,
+                body=json.dumps(bedrock_payload),
+            )
+            response_body = json.loads(response.get("body").read())
+            content = response_body.get("content", [])[0].get("text", "")
+            
+        except Exception as exc:
+            logger.error(f"Bedrock OCR request failed: {exc}")
+            return {"status": "error", "reason": "bedrock_request_failed"}
 
-    data = response.json()
-    content = data.get("message", {}).get("content", "")
+    else:
+        # Fallback to Ollama
+        ollama_endpoint = _get_setting(db, "ollama_endpoint", settings.OLLAMA_BASE_URL).rstrip("/")
+        vision_model = _get_setting(db, "ollama_vision_model", settings.OLLAMA_VISION_MODEL)
+        
+        payload = {
+            "model": vision_model,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": prompt_text,
+                    "images": [encoded],
+                }
+            ],
+            "stream": False,
+        }
+
+        try:
+            async with httpx.AsyncClient(timeout=45.0) as client:
+                response = await client.post(f"{ollama_endpoint}/api/chat", json=payload)
+                response.raise_for_status()
+        except httpx.HTTPError as exc:
+            logger.error(f"OCR request failed: {exc}")
+            return {"status": "error", "reason": "request_failed"}
+
+        data = response.json()
+        content = data.get("message", {}).get("content", "")
+
     if not content:
         return {"status": "error", "reason": "empty_response"}
 
     extracted = _extract_json(content)
-    extracted.setdefault("status", "processed")
-    return extracted
+
+    # Validate and normalize the extraction using document-specific schema
+    validated = validate_extraction(doc_type, extracted)
+    validated.setdefault("status", "processed")
+    validated["doc_type"] = doc_type
+
+    logger.info(f"OCR extraction completed for {doc_type}: confidence={validated.get('confidence', 'N/A')}")
+
+    return validated

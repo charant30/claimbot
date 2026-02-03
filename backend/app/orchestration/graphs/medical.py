@@ -8,6 +8,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 
 from app.orchestration.state import ConversationState, get_required_fields
 from app.orchestration.routing import get_llm
+from app.orchestration.utils import extract_json_from_llm_response, safe_get_decimal_field
 from app.core.logging import logger
 
 
@@ -59,9 +60,10 @@ def collect_medical_info(state: ConversationState) -> ConversationState:
                 SystemMessage(content=extraction_prompt),
             ])
 
-            import json
-            extracted = json.loads(extract_response.content)
-            if isinstance(extracted, dict) and extracted:
+            content = extract_response.content.strip()
+            extracted = extract_json_from_llm_response(content)
+
+            if extracted:
                 collected = {**state.get("collected_fields", {}), **extracted}
                 missing = [f for f in state.get("missing_fields", []) if f not in collected]
 
@@ -72,8 +74,7 @@ def collect_medical_info(state: ConversationState) -> ConversationState:
                     "collected_fields": collected,
                     "missing_fields": missing,
                 }
-        except json.JSONDecodeError:
-            logger.warning("Failed to parse LLM extraction response as JSON")
+            # If extracted is None, we simply continue - no warning needed
         except Exception as e:
             logger.error(f"LLM extraction failed in collect_medical_info: {e}")
             # Continue with collection - don't fail the flow
@@ -171,8 +172,9 @@ def adjudicate_medical_claim(state: ConversationState) -> ConversationState:
     from app.services.policy_validation import get_policy_validation_service
     
     collected = state.get("collected_fields", {})
-    
-    billed_amount = Decimal(str(collected.get("billed_amount", 0)))
+
+    # Safely parse billed amount (handles "$250.00" format)
+    billed_amount = safe_get_decimal_field(collected, "billed_amount")
     is_in_network = collected.get("is_in_network", True)
     
     db = SessionLocal()

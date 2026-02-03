@@ -128,8 +128,10 @@ class PolicyValidationService:
         coverage_type: str,
     ) -> Optional[PolicyCoverage]:
         """Get specific coverage from policy."""
+        if not coverage_type:
+            return None
         for coverage in policy.coverages:
-            if coverage.coverage_type.lower() == coverage_type.lower():
+            if coverage.coverage_type and coverage.coverage_type.lower() == coverage_type.lower():
                 return coverage
         return None
     

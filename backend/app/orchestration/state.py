@@ -57,7 +57,13 @@ class ConversationState(TypedDict):
 
     # Agent trace for multi-step orchestration
     agent_trace: List[dict]
-    
+
+    # Document integration
+    uploaded_documents: List[dict]       # List of {doc_id, doc_type, extracted_entities}
+    verified_documents: dict             # Verification results per doc_type
+    pending_document_review: bool        # True when new documents need processing
+    document_discrepancies: List[dict]   # Cross-document issues found
+
     # Control
     next_step: str
     is_complete: bool
@@ -89,6 +95,10 @@ def create_initial_state(
         case_packet=None,
         flow_settings=None,
         agent_trace=[],
+        uploaded_documents=[],
+        verified_documents={},
+        pending_document_review=False,
+        document_discrepancies=[],
         next_step="classify_intent",
         is_complete=False,
     )

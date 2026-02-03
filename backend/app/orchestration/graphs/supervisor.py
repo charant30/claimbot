@@ -8,6 +8,15 @@ from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 
 from app.orchestration.state import ConversationState, ClaimIntent, ProductLine, get_required_fields
 from app.orchestration.routing import get_llm
+from app.services.document_integration import (
+    merge_document_entities_to_collected_fields,
+    generate_document_confirmation_message,
+)
+from app.services.document_verification import (
+    verify_cross_document_consistency,
+    generate_verification_summary,
+    DiscrepancySeverity,
+)
 from app.core.logging import logger
 
 
@@ -189,12 +198,20 @@ def ask_product(state: ConversationState) -> ConversationState:
 def route_to_subgraph(state: ConversationState) -> ConversationState:
     """Route to appropriate subgraph based on product line."""
     product = state.get("product_line")
-    
+
+    # Handle missing product - should not happen but fail gracefully
+    if not product:
+        logger.warning("route_to_subgraph called without product_line set")
+        return {**state, "next_step": "ask_product"}
+
     if product == ProductLine.MEDICAL.value:
         return {**state, "next_step": "medical_subgraph"}
-    else:
-        # Auto and Home use incident subgraph
+    elif product in (ProductLine.AUTO.value, ProductLine.HOME.value):
         return {**state, "next_step": "incident_subgraph"}
+    else:
+        # Unknown product type - ask user to clarify
+        logger.warning(f"Unknown product_line: {product}")
+        return {**state, "next_step": "ask_product"}
 
 
 def route_agents(state: ConversationState) -> ConversationState:
@@ -205,8 +222,9 @@ def route_agents(state: ConversationState) -> ConversationState:
 
 
 def _append_agent_trace(state: ConversationState, agent: str, output: dict = None) -> ConversationState:
-    trace = state.get("agent_trace") or []
-    trace.append({
+    """Append an agent trace entry without mutating the original state."""
+    existing_trace = state.get("agent_trace") or []
+    new_entry = {
         "agent": agent,
         "input": {
             "intent": state.get("intent"),
@@ -215,8 +233,9 @@ def _append_agent_trace(state: ConversationState, agent: str, output: dict = Non
         },
         "output": output or {},
         "timestamp": datetime.utcnow().isoformat(),
-    })
-    return {**state, "agent_trace": trace}
+    }
+    # Create new list to avoid mutating original state
+    return {**state, "agent_trace": [*existing_trace, new_entry]}
 
 
 def agent_intake(state: ConversationState) -> ConversationState:
@@ -226,9 +245,119 @@ def agent_intake(state: ConversationState) -> ConversationState:
 
 
 def agent_documents(state: ConversationState) -> ConversationState:
-    """Stub document agent - evaluates uploaded documents."""
-    state = _append_agent_trace(state, "agent_documents", {"status": "pending_documents"})
-    return {**state, "next_step": "agent_policy"}
+    """
+    Document verification agent - processes uploaded documents and merges extracted data.
+
+    Reads documents associated with the current claim/thread and merges
+    OCR-extracted entities into the collected_fields. Also performs cross-document
+    verification when multiple documents are present.
+    """
+    documents = state.get("uploaded_documents", [])
+
+    if not documents:
+        # No documents to process yet
+        state = _append_agent_trace(state, "agent_documents", {"status": "no_documents"})
+        return {**state, "next_step": "agent_policy"}
+
+    # Merge document entities into collected fields
+    collected = state.get("collected_fields", {})
+    required = state.get("required_fields", [])
+
+    merged_collected = merge_document_entities_to_collected_fields(
+        collected_fields=collected,
+        documents=documents,
+        required_fields=required,
+    )
+
+    # Update missing fields
+    missing = [f for f in required if f not in merged_collected]
+
+    # Count how many fields were added from documents
+    fields_added = len(merged_collected) - len(collected)
+
+    # Check for any new documents that need confirmation
+    pending_review = state.get("pending_document_review", False)
+    ai_response = None
+
+    if pending_review and documents:
+        # Generate confirmation for the most recent document
+        latest_doc = documents[-1]
+        ai_response = generate_document_confirmation_message(
+            doc_type=latest_doc.get("doc_type", "document"),
+            extracted_entities=latest_doc.get("extracted_entities", {}),
+        )
+
+    # Run cross-document verification when we have multiple documents
+    verification_result = None
+    document_discrepancies = state.get("document_discrepancies", [])
+    should_escalate = state.get("should_escalate", False)
+    escalation_reason = state.get("escalation_reason")
+
+    if len(documents) >= 2:
+        verification_result = verify_cross_document_consistency(
+            documents=documents,
+            collected_fields=merged_collected,
+            tolerance_days=7,
+        )
+
+        # Store discrepancies
+        document_discrepancies = [d.to_dict() for d in verification_result.discrepancies]
+
+        # Check for error-level discrepancies that require escalation
+        error_discrepancies = [
+            d for d in verification_result.discrepancies
+            if d.severity == DiscrepancySeverity.ERROR
+        ]
+
+        if error_discrepancies:
+            should_escalate = True
+            escalation_reason = f"Document verification failed: {error_discrepancies[0].details}"
+            logger.warning(f"Cross-document verification found {len(error_discrepancies)} error(s)")
+
+        # Add verification summary to response if we have discrepancies
+        if verification_result.discrepancies and ai_response:
+            summary = generate_verification_summary(verification_result)
+            ai_response = f"{ai_response}\n\n---\n**Verification Note:**\n{summary}"
+        elif verification_result.discrepancies and not ai_response:
+            ai_response = generate_verification_summary(verification_result)
+
+        logger.info(f"Cross-document verification: valid={verification_result.is_valid}, "
+                    f"confidence={verification_result.confidence_score:.2f}, "
+                    f"discrepancies={len(verification_result.discrepancies)}")
+
+    state = _append_agent_trace(state, "agent_documents", {
+        "status": "processed",
+        "documents_count": len(documents),
+        "fields_added_from_documents": fields_added,
+        "verification_valid": verification_result.is_valid if verification_result else None,
+        "discrepancy_count": len(document_discrepancies),
+    })
+
+    logger.info(f"agent_documents: processed {len(documents)} documents, added {fields_added} fields")
+
+    result = {
+        **state,
+        "collected_fields": merged_collected,
+        "missing_fields": missing,
+        "pending_document_review": False,
+        "document_discrepancies": document_discrepancies,
+        "verified_documents": verification_result.verified_fields if verification_result else {},
+        "confidence": verification_result.confidence_score if verification_result else state.get("confidence", 1.0),
+        "should_escalate": should_escalate,
+        "escalation_reason": escalation_reason,
+        "next_step": "agent_policy",
+    }
+
+    # If we have a confirmation message, return it to the user
+    if ai_response:
+        result["ai_response"] = ai_response
+        result["next_step"] = "respond"
+
+    # If escalation is needed due to verification errors, route to escalation
+    if should_escalate and document_discrepancies:
+        result["next_step"] = "escalate"
+
+    return result
 
 
 def agent_policy(state: ConversationState) -> ConversationState:
@@ -438,7 +567,18 @@ def build_supervisor_graph() -> StateGraph:
     )
 
     workflow.add_edge("agent_intake", "agent_documents")
-    workflow.add_edge("agent_documents", "agent_policy")
+
+    # agent_documents can route to respond (for confirmation), escalate (for errors), or continue
+    workflow.add_conditional_edges(
+        "agent_documents",
+        route_next,
+        {
+            "agent_policy": "agent_policy",
+            "respond": "respond",
+            "escalate": "escalate",
+        }
+    )
+
     workflow.add_edge("agent_policy", "agent_decision")
     workflow.add_edge("agent_decision", "route_to_subgraph")
     
@@ -450,6 +590,7 @@ def build_supervisor_graph() -> StateGraph:
         {
             "incident_subgraph": "incident_subgraph",
             "medical_subgraph": "medical_subgraph",
+            "ask_product": "ask_product",  # Fallback for missing/invalid product
         }
     )
     

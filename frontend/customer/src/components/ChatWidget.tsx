@@ -137,6 +137,7 @@ function ChatWidget() {
                                 <ClaimIntakeForm onSubmit={submitClaimForm} isLoading={isLoading} />
                             )}
 
+                            {/* Show document upload panel in document_upload stage */}
                             {flowStage === 'document_upload' && claimId && (
                                 <DocumentUploadPanel
                                     claimId={claimId}
@@ -144,6 +145,19 @@ function ChatWidget() {
                                     isLoading={isLoading}
                                     onUpload={uploadDocument}
                                 />
+                            )}
+
+                            {/* In conversation mode, show compact document panel if claim exists but photos not yet uploaded */}
+                            {flowStage === 'conversation' && claimId && !documents.some(d => d.doc_type === 'incident_photos') && (
+                                <div className="document-reminder">
+                                    <p>Please upload incident photos to continue with your claim.</p>
+                                    <DocumentUploadPanel
+                                        claimId={claimId}
+                                        documents={documents}
+                                        isLoading={isLoading}
+                                        onUpload={uploadDocument}
+                                    />
+                                </div>
                             )}
 
                             {isLoading && (

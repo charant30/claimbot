@@ -9,6 +9,7 @@ from app.db.models.document import Document, DocumentType
 from app.db.models.provider import Provider, NetworkStatus
 from app.db.models.settings import SystemSettings
 from app.db.models.audit import AuditLog
+from app.db.models.flow_config import DocumentFlowConfig, IntentConfig, FlowRule
 
 __all__ = [
     # User
@@ -39,4 +40,8 @@ __all__ = [
     "SystemSettings",
     # Audit
     "AuditLog",
+    # Flow Config
+    "DocumentFlowConfig",
+    "IntentConfig",
+    "FlowRule",
 ]

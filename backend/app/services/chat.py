@@ -78,6 +78,8 @@ class ChatService:
         product_line = metadata.get("product_line")
         claim_id = metadata.get("claim_id")
         policy_id = metadata.get("policy_id")
+        claim_form = metadata.get("claim_form")
+        claim_number = metadata.get("claim_number")
 
         if intent and not state.get("intent"):
             state["intent"] = intent
@@ -88,13 +90,39 @@ class ChatService:
         if claim_id and not state.get("claim_id"):
             state["claim_id"] = claim_id
 
+        if claim_number and not state.get("claim_number"):
+            state["claim_number"] = claim_number
+
         if policy_id and not state.get("policy_id"):
             state["policy_id"] = policy_id
+
+        # Extract claim form data into collected_fields
+        if claim_form:
+            collected = state.get("collected_fields") or {}
+            # Map frontend form fields to backend field names
+            field_mapping = {
+                "incidentDate": "incident_date",
+                "incidentType": "incident_type",
+                "location": "incident_location",
+                "description": "incident_description",
+                "estimatedLoss": "estimated_damage",
+                "policyNumber": "policy_number",
+            }
+            for frontend_key, backend_key in field_mapping.items():
+                if frontend_key in claim_form and claim_form[frontend_key]:
+                    collected[backend_key] = claim_form[frontend_key]
+            state["collected_fields"] = collected
+            logger.info(f"Applied form data to collected_fields: {list(collected.keys())}")
 
         if state.get("intent") and state.get("product_line") and not state.get("required_fields"):
             required = get_required_fields(state["intent"], state["product_line"])
             state["required_fields"] = required
             state["missing_fields"] = required.copy()
+
+        # Update missing_fields based on what we've collected
+        if state.get("required_fields") and state.get("collected_fields"):
+            collected = state["collected_fields"]
+            state["missing_fields"] = [f for f in state["required_fields"] if f not in collected]
 
         return state
     

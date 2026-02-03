@@ -120,11 +120,14 @@ export const chatApi = {
 
 // Documents API
 export const documentsApi = {
-    upload: async (claimId: string, docType: string, file: File) => {
+    upload: async (claimId: string, docType: string, file: File, threadId?: string) => {
         const formData = new FormData()
         formData.append('claim_id', claimId)
         formData.append('doc_type', docType)
         formData.append('file', file)
+        if (threadId) {
+            formData.append('thread_id', threadId)
+        }
 
         const response = await api.post('/documents/upload', formData, {
             headers: { 'Content-Type': 'multipart/form-data' },

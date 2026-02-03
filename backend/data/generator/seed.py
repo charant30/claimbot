@@ -293,6 +293,21 @@ def run_seed():
     
     db = SessionLocal()
     try:
+        # Check if users exist to avoid duplicates
+        existing_user = db.query(User).first()
+        if existing_user:
+            print("⚠️  Users already exist in database. Skipping data generation steps to avoid duplicates.")
+            
+            print("Seeding default settings...")
+            seed_default_settings(db)
+            
+            print("\n✅ Database check complete! (Existing data preserved)")
+            print("\nDemo credentials (if standard seed was used):")
+            print("  Admin: admin@claimbot.demo / admin123")
+            print("  Celest: celest@claimbot.demo / celest123")
+            print("  Customer: any generated user / demo123")
+            return
+
         # Generate data
         print("Generating users...")
         users = generate_users(db, count=50)

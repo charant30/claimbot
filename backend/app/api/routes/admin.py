@@ -11,10 +11,11 @@ from sqlalchemy import func
 
 from app.db import get_db
 from app.db.models import (
-    SystemSettings, AuditLog, User, Case, Claim, 
-    CaseStatus, ClaimStatus
+    SystemSettings, AuditLog, User, Case, Claim,
+    CaseStatus, ClaimStatus, DocumentFlowConfig, IntentConfig, FlowRule
 )
 from app.core import require_role, logger
+from app.services import flow_config as flow_config_service
 
 router = APIRouter()
 
@@ -279,19 +280,230 @@ async def get_transcript_detail(
     )
 
 
+# =============================================================================
+# Intent Configuration CRUD
+# =============================================================================
+
+class IntentConfigRequest(BaseModel):
+    name: str
+    display_name: str
+    description: Optional[str] = None
+    applicable_products: Optional[List[str]] = None
+    trigger_phrases: Optional[List[str]] = None
+    required_fields: Optional[List[str]] = None
+    flow_config: Optional[Dict[str, Any]] = None
+    icon: Optional[str] = None
+    is_active: bool = True
+    priority: int = 0
+
+
 @router.get("/intents")
 async def get_intents(
+    active_only: bool = False,
     payload: dict = Depends(require_role(["admin"])),
     db: Session = Depends(get_db),
 ):
-    """Get configured intents."""
-    intents = get_setting(db, "intents", [
-        {"name": "file_claim", "description": "File a new claim"},
-        {"name": "check_status", "description": "Check claim status"},
-        {"name": "coverage_question", "description": "Ask about coverage"},
-        {"name": "billing", "description": "Billing inquiry"},
-    ])
-    return {"intents": intents}
+    """Get all configured intents."""
+    intents = flow_config_service.get_all_intents(db, active_only=active_only)
+
+    if not intents:
+        # Return defaults if no database config
+        return {"intents": flow_config_service.DEFAULT_INTENTS}
+
+    return {"intents": [i.to_dict() for i in intents]}
+
+
+@router.post("/intents")
+async def create_intent(
+    request: IntentConfigRequest,
+    payload: dict = Depends(require_role(["admin"])),
+    db: Session = Depends(get_db),
+):
+    """Create a new intent configuration."""
+    existing = flow_config_service.get_intent_by_name(db, request.name)
+    if existing:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Intent with name '{request.name}' already exists",
+        )
+
+    intent = flow_config_service.create_intent_config(
+        db=db,
+        name=request.name,
+        display_name=request.display_name,
+        description=request.description,
+        applicable_products=request.applicable_products,
+        trigger_phrases=request.trigger_phrases,
+        required_fields=request.required_fields,
+        flow_config=request.flow_config,
+        icon=request.icon,
+    )
+
+    logger.info(f"Intent created: {intent.name} by {payload.get('sub')}")
+    return intent.to_dict()
+
+
+@router.put("/intents/{intent_id}")
+async def update_intent(
+    intent_id: str,
+    request: IntentConfigRequest,
+    payload: dict = Depends(require_role(["admin"])),
+    db: Session = Depends(get_db),
+):
+    """Update an intent configuration."""
+    updates = request.model_dump(exclude_unset=True)
+    intent = flow_config_service.update_intent_config(db, intent_id, updates)
+
+    if not intent:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Intent not found",
+        )
+
+    logger.info(f"Intent updated: {intent.name} by {payload.get('sub')}")
+    return intent.to_dict()
+
+
+@router.delete("/intents/{intent_id}")
+async def delete_intent(
+    intent_id: str,
+    payload: dict = Depends(require_role(["admin"])),
+    db: Session = Depends(get_db),
+):
+    """Delete an intent configuration."""
+    success = flow_config_service.delete_intent_config(db, intent_id)
+
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Intent not found",
+        )
+
+    logger.info(f"Intent deleted: {intent_id} by {payload.get('sub')}")
+    return {"message": "Intent deleted"}
+
+
+# =============================================================================
+# Document Flow Configuration CRUD
+# =============================================================================
+
+class DocumentFlowRequest(BaseModel):
+    product_line: str
+    incident_type: Optional[str] = None
+    document_sequence: List[str]
+    conditional_rules: Optional[Dict[str, Any]] = None
+    field_requirements: Optional[Dict[str, List[str]]] = None
+    is_active: bool = True
+    priority: int = 0
+
+
+@router.get("/document-flows")
+async def get_document_flows(
+    product_line: Optional[str] = None,
+    payload: dict = Depends(require_role(["admin"])),
+    db: Session = Depends(get_db),
+):
+    """Get all document flow configurations."""
+    query = db.query(DocumentFlowConfig)
+
+    if product_line:
+        query = query.filter(DocumentFlowConfig.product_line == product_line)
+
+    configs = query.order_by(
+        DocumentFlowConfig.product_line,
+        DocumentFlowConfig.priority.desc()
+    ).all()
+
+    if not configs:
+        # Return defaults if no database config
+        return {
+            "document_flows": [
+                {
+                    "product_line": pl,
+                    "incident_type": it if it != "default" else None,
+                    "document_sequence": docs,
+                    "is_default": True,
+                }
+                for pl, incidents in flow_config_service.DEFAULT_DOCUMENT_FLOWS.items()
+                for it, docs in incidents.items()
+            ]
+        }
+
+    return {"document_flows": [c.to_dict() for c in configs]}
+
+
+@router.post("/document-flows")
+async def create_document_flow(
+    request: DocumentFlowRequest,
+    payload: dict = Depends(require_role(["admin"])),
+    db: Session = Depends(get_db),
+):
+    """Create a new document flow configuration."""
+    config = flow_config_service.create_document_flow_config(
+        db=db,
+        product_line=request.product_line,
+        incident_type=request.incident_type,
+        document_sequence=request.document_sequence,
+        conditional_rules=request.conditional_rules,
+        field_requirements=request.field_requirements,
+        created_by=payload.get("sub"),
+    )
+
+    logger.info(f"Document flow created: {config.product_line}/{config.incident_type} by {payload.get('sub')}")
+    return config.to_dict()
+
+
+@router.put("/document-flows/{config_id}")
+async def update_document_flow(
+    config_id: str,
+    request: DocumentFlowRequest,
+    payload: dict = Depends(require_role(["admin"])),
+    db: Session = Depends(get_db),
+):
+    """Update a document flow configuration."""
+    updates = request.model_dump(exclude_unset=True)
+    config = flow_config_service.update_document_flow_config(db, config_id, updates)
+
+    if not config:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document flow configuration not found",
+        )
+
+    logger.info(f"Document flow updated: {config_id} by {payload.get('sub')}")
+    return config.to_dict()
+
+
+@router.delete("/document-flows/{config_id}")
+async def delete_document_flow(
+    config_id: str,
+    payload: dict = Depends(require_role(["admin"])),
+    db: Session = Depends(get_db),
+):
+    """Delete a document flow configuration."""
+    success = flow_config_service.delete_document_flow_config(db, config_id)
+
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document flow configuration not found",
+        )
+
+    logger.info(f"Document flow deleted: {config_id} by {payload.get('sub')}")
+    return {"message": "Document flow deleted"}
+
+
+# =============================================================================
+# Flow Rules CRUD
+# =============================================================================
+
+class FlowRuleRequest(BaseModel):
+    name: str
+    description: Optional[str] = None
+    conditions: Dict[str, Any]
+    action: Dict[str, Any]
+    is_active: bool = True
+    priority: int = 0
 
 
 @router.get("/flows")
@@ -299,15 +511,94 @@ async def get_flows(
     payload: dict = Depends(require_role(["admin"])),
     db: Session = Depends(get_db),
 ):
-    """Get configured flow rules."""
-    flows = get_setting(db, "flows", {
-        "confidence_threshold": 0.7,
-        "auto_approval_limit": 5000,
-        "escalation_triggers": [
-            "low_confidence",
-            "high_amount",
-            "user_request",
-            "coverage_ambiguity",
-        ],
-    })
-    return {"flows": flows}
+    """Get all flow rules and general flow settings."""
+    rules = flow_config_service.get_all_flow_rules(db, active_only=False)
+
+    # Also return general settings
+    settings = {
+        "confidence_threshold": get_setting(db, "confidence_threshold", 0.7),
+        "auto_approval_limit": get_setting(db, "auto_approval_limit", 5000),
+    }
+
+    return {
+        "settings": settings,
+        "rules": [r.to_dict() for r in rules] if rules else [],
+    }
+
+
+@router.put("/flows/settings")
+async def update_flow_settings(
+    settings: Dict[str, Any],
+    payload: dict = Depends(require_role(["admin"])),
+    db: Session = Depends(get_db),
+):
+    """Update general flow settings."""
+    user_id = payload.get("sub")
+
+    if "confidence_threshold" in settings:
+        set_setting(db, "confidence_threshold", settings["confidence_threshold"], user_id)
+    if "auto_approval_limit" in settings:
+        set_setting(db, "auto_approval_limit", settings["auto_approval_limit"], user_id)
+
+    logger.info(f"Flow settings updated by {user_id}")
+    return {"message": "Settings updated", "settings": settings}
+
+
+@router.post("/flows/rules")
+async def create_flow_rule(
+    request: FlowRuleRequest,
+    payload: dict = Depends(require_role(["admin"])),
+    db: Session = Depends(get_db),
+):
+    """Create a new flow rule."""
+    rule = flow_config_service.create_flow_rule(
+        db=db,
+        name=request.name,
+        description=request.description,
+        conditions=request.conditions,
+        action=request.action,
+        priority=request.priority,
+    )
+
+    logger.info(f"Flow rule created: {rule.name} by {payload.get('sub')}")
+    return rule.to_dict()
+
+
+@router.put("/flows/rules/{rule_id}")
+async def update_flow_rule(
+    rule_id: str,
+    request: FlowRuleRequest,
+    payload: dict = Depends(require_role(["admin"])),
+    db: Session = Depends(get_db),
+):
+    """Update a flow rule."""
+    updates = request.model_dump(exclude_unset=True)
+    rule = flow_config_service.update_flow_rule(db, rule_id, updates)
+
+    if not rule:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Flow rule not found",
+        )
+
+    logger.info(f"Flow rule updated: {rule_id} by {payload.get('sub')}")
+    return rule.to_dict()
+
+
+@router.delete("/flows/rules/{rule_id}")
+async def delete_flow_rule(
+    rule_id: str,
+    payload: dict = Depends(require_role(["admin"])),
+    db: Session = Depends(get_db),
+):
+    """Delete a flow rule."""
+    success = flow_config_service.delete_flow_rule(db, rule_id)
+
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Flow rule not found",
+        )
+
+    logger.info(f"Flow rule deleted: {rule_id} by {payload.get('sub')}")
+    return {"message": "Flow rule deleted"}

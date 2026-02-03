@@ -234,6 +234,28 @@ export const useChatStore = create<ChatState>((set, get) => ({
                 flowStage: 'document_upload',
             })
 
+            // Add form summary message to chat
+            const formSummary = `**Claim Details Submitted:**
+• Policy: ${data.policyNumber}
+• Incident Date: ${data.incidentDate}
+• Incident Type: ${data.incidentType}
+• Location: ${data.location}
+• Description: ${data.description}
+• Estimated Loss: $${data.estimatedLoss}`
+
+            set((state) => ({
+                messages: [
+                    ...state.messages,
+                    {
+                        id: `form-summary-${Date.now()}`,
+                        role: 'user',
+                        content: formSummary,
+                        timestamp: new Date(),
+                        metadata: { type: 'form_summary', editable: false },
+                    },
+                ],
+            }))
+
             if (threadId) {
                 await chatApi.sendMessage(
                     threadId,
@@ -264,7 +286,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
                         {
                             id: `bot-${Date.now()}`,
                             role: 'assistant',
-                            content: `Thanks! Your claim ${claim.claim_number} is started. Please upload supporting documents.`,
+                            content: `Thanks! Your claim ${claim.claim_number} is started. Please upload photos of the incident (required) to help us verify and process your claim.`,
                             timestamp: new Date(),
                         },
                     ],
@@ -290,7 +312,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     },
 
     uploadDocument: async (docType: string, file: File) => {
-        const { claimId, threadId } = get()
+        const { claimId, threadId, documents } = get()
         if (!claimId) {
             return
         }
@@ -298,13 +320,34 @@ export const useChatStore = create<ChatState>((set, get) => ({
         set({ isLoading: true })
 
         try {
-            const response = await documentsApi.upload(claimId, docType, file)
+            const response = await documentsApi.upload(claimId, docType, file, threadId || undefined)
+            const newDocuments = [...documents, response]
+
+            // Check if required documents (incident_photos) are now uploaded
+            const hasRequiredDocs = newDocuments.some(doc => doc.doc_type === 'incident_photos')
+
             set((state) => ({
-                documents: [...state.documents, response],
+                documents: newDocuments,
+                // Transition to conversation if required docs are uploaded
+                flowStage: hasRequiredDocs ? 'conversation' : state.flowStage,
+            }))
+
+            // Add user message showing upload
+            set((state) => ({
+                messages: [
+                    ...state.messages,
+                    {
+                        id: `upload-${Date.now()}`,
+                        role: 'user',
+                        content: `Uploaded ${docType.replace(/_/g, ' ')}: ${file.name}`,
+                        timestamp: new Date(),
+                        metadata: { type: 'document_upload', doc_type: docType },
+                    },
+                ],
             }))
 
             if (threadId) {
-                const message = `Uploaded ${docType.replace('_', ' ')} document: ${file.name}`
+                const message = `Uploaded ${docType.replace(/_/g, ' ')} document: ${file.name}`
                 const chatResponse = await chatApi.sendMessage(threadId, message, {
                     claim_id: claimId,
                     document_id: response.doc_id,
@@ -331,7 +374,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
                         {
                             id: `bot-${Date.now()}`,
                             role: 'assistant',
-                            content: `Document received: ${file.name}. We'll review it shortly.`,
+                            content: hasRequiredDocs
+                                ? `Document received: ${file.name}. We've verified your incident photos. You can now continue with your claim or upload additional documents.`
+                                : `Document received: ${file.name}. Please also upload photos of the incident (required).`,
                             timestamp: new Date(),
                         },
                     ],

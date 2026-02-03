@@ -1,7 +1,7 @@
 """
 API routes package
 """
-from app.api.routes import auth, policies, claims, documents, chat, handoff, admin
+from app.api.routes import auth, policies, claims, documents, chat, handoff, admin, websocket
 
 __all__ = [
     "auth",
@@ -11,4 +11,5 @@ __all__ = [
     "chat",
     "handoff",
     "admin",
+    "websocket",
 ]

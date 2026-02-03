@@ -11,9 +11,10 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.db import get_db
-from app.db.models import Case, CaseAudit, CaseStatus, ActorType, Claim
+from app.db.models import Case, CaseAudit, CaseStatus, ActorType, Claim, Document, Policy
 from app.core import get_current_user_id, require_role, logger, log_audit_event
 from app.services.session_store import get_session_store
+from app.services.document_integration import get_documents_for_claim
 
 router = APIRouter()
 
@@ -616,3 +617,265 @@ async def release_case(
     log_audit_event("case_released", user_id, "celest", {"case_id": str(case_id)})
 
     return {"message": "Case released", "case_id": str(case_id)}
+
+
+# =============================================================================
+# Document Viewer Endpoints (Phase 6)
+# =============================================================================
+
+class DocumentResponse(BaseModel):
+    doc_id: str
+    doc_type: str
+    filename: str
+    file_path: Optional[str]
+    extracted_entities: Dict[str, Any]
+    uploaded_at: str
+    verification_status: Optional[str] = None
+
+
+class PolicyResponse(BaseModel):
+    policy_id: str
+    policy_number: str
+    product_line: str
+    holder_name: str
+    coverage_amount: float
+    deductible: float
+    status: str
+    effective_date: str
+    expiration_date: str
+
+
+class CaseDetailResponse(BaseModel):
+    case: CaseResponse
+    claim: Dict[str, Any]
+    policy: Optional[PolicyResponse]
+    documents: List[DocumentResponse]
+    audit_trail: List[Dict[str, Any]]
+
+
+@router.get("/case/{case_id}/documents", response_model=List[DocumentResponse])
+async def get_case_documents(
+    case_id: UUID,
+    payload: dict = Depends(require_role(["celest", "admin"])),
+    db: Session = Depends(get_db),
+):
+    """Get all documents associated with a case for specialist review."""
+    case = _get_case_or_404(db, case_id)
+
+    # Get documents for the claim
+    documents = get_documents_for_claim(db, str(case.claim_id))
+
+    return [
+        DocumentResponse(
+            doc_id=str(doc.get("doc_id", "")),
+            doc_type=doc.get("doc_type", "unknown"),
+            filename=doc.get("filename", ""),
+            file_path=doc.get("file_path"),
+            extracted_entities=doc.get("extracted_entities", {}),
+            uploaded_at=doc.get("uploaded_at", ""),
+            verification_status=doc.get("verification_status"),
+        )
+        for doc in documents
+    ]
+
+
+@router.get("/case/{case_id}/policy", response_model=Optional[PolicyResponse])
+async def get_case_policy(
+    case_id: UUID,
+    payload: dict = Depends(require_role(["celest", "admin"])),
+    db: Session = Depends(get_db),
+):
+    """Get policy details for a case."""
+    case = _get_case_or_404(db, case_id)
+    claim = case.claim
+
+    if not claim or not claim.policy:
+        return None
+
+    policy = claim.policy
+
+    return PolicyResponse(
+        policy_id=str(policy.policy_id),
+        policy_number=policy.policy_number,
+        product_line=policy.product_line.value if hasattr(policy.product_line, 'value') else str(policy.product_line),
+        holder_name=policy.holder.name if policy.holder else "Unknown",
+        coverage_amount=float(policy.coverage_amount or 0),
+        deductible=float(policy.deductible or 0),
+        status=policy.status.value if hasattr(policy.status, 'value') else str(policy.status),
+        effective_date=policy.effective_date.isoformat() if policy.effective_date else "",
+        expiration_date=policy.expiration_date.isoformat() if policy.expiration_date else "",
+    )
+
+
+@router.get("/case/{case_id}/full", response_model=CaseDetailResponse)
+async def get_case_full_details(
+    case_id: UUID,
+    payload: dict = Depends(require_role(["celest", "admin"])),
+    db: Session = Depends(get_db),
+):
+    """Get complete case details including documents, policy, and audit trail."""
+    case = _get_case_or_404(db, case_id)
+    claim = case.claim
+
+    # Get documents
+    documents = get_documents_for_claim(db, str(case.claim_id))
+    doc_responses = [
+        DocumentResponse(
+            doc_id=str(doc.get("doc_id", "")),
+            doc_type=doc.get("doc_type", "unknown"),
+            filename=doc.get("filename", ""),
+            file_path=doc.get("file_path"),
+            extracted_entities=doc.get("extracted_entities", {}),
+            uploaded_at=doc.get("uploaded_at", ""),
+            verification_status=doc.get("verification_status"),
+        )
+        for doc in documents
+    ]
+
+    # Get policy
+    policy_response = None
+    if claim and claim.policy:
+        policy = claim.policy
+        policy_response = PolicyResponse(
+            policy_id=str(policy.policy_id),
+            policy_number=policy.policy_number,
+            product_line=policy.product_line.value if hasattr(policy.product_line, 'value') else str(policy.product_line),
+            holder_name=policy.holder.name if policy.holder else "Unknown",
+            coverage_amount=float(policy.coverage_amount or 0),
+            deductible=float(policy.deductible or 0),
+            status=policy.status.value if hasattr(policy.status, 'value') else str(policy.status),
+            effective_date=policy.effective_date.isoformat() if policy.effective_date else "",
+            expiration_date=policy.expiration_date.isoformat() if policy.expiration_date else "",
+        )
+
+    # Get audit trail
+    audits = (
+        db.query(CaseAudit)
+        .filter(CaseAudit.case_id == case_id)
+        .order_by(CaseAudit.created_at.desc())
+        .limit(50)
+        .all()
+    )
+    audit_trail = [
+        {
+            "event_type": a.event_type,
+            "actor_type": a.actor_type.value if hasattr(a.actor_type, 'value') else str(a.actor_type),
+            "actor_id": str(a.actor_id) if a.actor_id else None,
+            "details": a.details or {},
+            "created_at": a.created_at.isoformat(),
+        }
+        for a in audits
+    ]
+
+    # Build claim dict
+    claim_dict = {}
+    if claim:
+        claim_dict = {
+            "claim_id": str(claim.claim_id),
+            "claim_number": claim.claim_number,
+            "claim_type": claim.claim_type,
+            "status": claim.status.value if hasattr(claim.status, 'value') else str(claim.status),
+            "incident_date": claim.incident_date.isoformat() if claim.incident_date else None,
+            "metadata": claim.metadata or {},
+            "timeline": claim.timeline or [],
+        }
+
+    return CaseDetailResponse(
+        case=case_to_response(case),
+        claim=claim_dict,
+        policy=policy_response,
+        documents=doc_responses,
+        audit_trail=audit_trail,
+    )
+
+
+@router.get("/case/{case_id}/audit-trail")
+async def get_case_audit_trail(
+    case_id: UUID,
+    limit: int = 50,
+    payload: dict = Depends(require_role(["celest", "admin"])),
+    db: Session = Depends(get_db),
+):
+    """Get audit trail for a case."""
+    case = _get_case_or_404(db, case_id)
+
+    audits = (
+        db.query(CaseAudit)
+        .filter(CaseAudit.case_id == case_id)
+        .order_by(CaseAudit.created_at.desc())
+        .limit(limit)
+        .all()
+    )
+
+    return {
+        "case_id": str(case_id),
+        "audit_trail": [
+            {
+                "event_type": a.event_type,
+                "actor_type": a.actor_type.value if hasattr(a.actor_type, 'value') else str(a.actor_type),
+                "actor_id": str(a.actor_id) if a.actor_id else None,
+                "details": a.details or {},
+                "created_at": a.created_at.isoformat(),
+            }
+            for a in audits
+        ],
+    }
+
+
+class AddNoteRequest(BaseModel):
+    note: str
+    is_internal: bool = True
+
+
+@router.post("/case/{case_id}/notes")
+async def add_case_note(
+    case_id: UUID,
+    request: AddNoteRequest,
+    payload: dict = Depends(require_role(["celest", "admin"])),
+    db: Session = Depends(get_db),
+):
+    """Add an internal note to a case."""
+    case = _get_case_or_404(db, case_id)
+    user_id = payload.get("sub")
+
+    # Add note to case packet
+    if "notes" not in case.case_packet:
+        case.case_packet["notes"] = []
+
+    case.case_packet["notes"].append({
+        "note": request.note,
+        "author_id": user_id,
+        "is_internal": request.is_internal,
+        "created_at": datetime.utcnow().isoformat(),
+    })
+
+    # Mark case_packet as modified for SQLAlchemy
+    from sqlalchemy.orm.attributes import flag_modified
+    flag_modified(case, "case_packet")
+
+    # Add audit
+    audit = CaseAudit(
+        case_id=case.case_id,
+        event_type="note_added",
+        actor_id=user_id,
+        actor_type=ActorType.CELEST,
+        details={"is_internal": request.is_internal},
+    )
+    db.add(audit)
+    db.commit()
+
+    return {"message": "Note added", "case_id": str(case_id)}
+
+
+@router.get("/case/{case_id}/notes")
+async def get_case_notes(
+    case_id: UUID,
+    payload: dict = Depends(require_role(["celest", "admin"])),
+    db: Session = Depends(get_db),
+):
+    """Get all notes for a case."""
+    case = _get_case_or_404(db, case_id)
+
+    notes = case.case_packet.get("notes", [])
+
+    return {"case_id": str(case_id), "notes": notes}

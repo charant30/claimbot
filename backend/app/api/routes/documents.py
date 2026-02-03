@@ -3,7 +3,7 @@ Documents API routes
 """
 import os
 import uuid
-from typing import List
+from typing import List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status
@@ -14,6 +14,7 @@ from app.db import get_db
 from app.db.models import Document, DocumentType, Claim, Policy
 from app.core import get_current_user_id, settings, logger
 from app.services.ocr import extract_document_entities
+from app.services.document_integration import notify_chat_of_document_upload
 
 router = APIRouter()
 
@@ -34,10 +35,18 @@ async def upload_document(
     claim_id: str = Form(...),
     doc_type: str = Form(...),
     file: UploadFile = File(...),
+    thread_id: Optional[str] = Form(None),
     user_id: str = Depends(get_current_user_id),
     db: Session = Depends(get_db),
 ):
-    """Upload a document for a claim."""
+    """Upload a document for a claim.
+
+    Args:
+        claim_id: The claim ID to attach the document to
+        doc_type: Document type (police_report, incident_photos, repair_estimate, invoice, other)
+        file: The file to upload
+        thread_id: Optional chat thread ID to notify of the upload
+    """
     # Validate claim ownership
     claim = (
         db.query(Claim)
@@ -93,8 +102,18 @@ async def upload_document(
     db.add(document)
     db.commit()
     db.refresh(document)
-    
+
     logger.info(f"Document uploaded: {document.filename} for claim {claim_id}")
+
+    # Notify chat session if thread_id is provided
+    if thread_id:
+        notify_chat_of_document_upload(
+            thread_id=thread_id,
+            claim_id=str(claim.claim_id),
+            doc_id=str(document.doc_id),
+            doc_type=doc_type,
+            extracted_entities=extracted_entities,
+        )
     
     return DocumentResponse(
         doc_id=str(document.doc_id),
