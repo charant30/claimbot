@@ -141,4 +141,98 @@ export const documentsApi = {
     },
 }
 
+// FNOL API
+export interface FNOLSessionResponse {
+    thread_id: string
+    claim_draft_id: string
+    current_state: string
+    message: string
+    needs_input: boolean
+    input_type: string
+    options: Array<{ value: string; label: string }>
+    progress: {
+        current: string
+        completed: string[]
+        percent: number
+    }
+    ui_hints: Record<string, any>
+}
+
+export interface FNOLMessageResponse extends FNOLSessionResponse {
+    validation_errors: string[]
+    is_complete: boolean
+    should_escalate: boolean
+    escalation_reason?: string
+}
+
+export interface FNOLStateResponse {
+    thread_id: string
+    claim_draft_id: string
+    status: string
+    current_state: string
+    progress_percent: number
+    completed_states: string[]
+    collected_data: Record<string, any>
+}
+
+export interface FNOLSummaryResponse {
+    thread_id: string
+    claim_draft_id: string
+    summary: Record<string, any>
+    can_submit: boolean
+    validation_errors: string[]
+}
+
+export const fnolApi = {
+    createSession: async (policyId?: string): Promise<FNOLSessionResponse> => {
+        const response = await api.post('/fnol/session', {
+            policy_id: policyId,
+        })
+        return response.data
+    },
+
+    sendMessage: async (
+        threadId: string,
+        message: string,
+        metadata?: Record<string, any>
+    ): Promise<FNOLMessageResponse> => {
+        const response = await api.post('/fnol/message', {
+            thread_id: threadId,
+            message,
+            metadata: metadata || {},
+        })
+        return response.data
+    },
+
+    getState: async (threadId: string): Promise<FNOLStateResponse> => {
+        const response = await api.get(`/fnol/session/${threadId}/state`)
+        return response.data
+    },
+
+    getSummary: async (threadId: string): Promise<FNOLSummaryResponse> => {
+        const response = await api.get(`/fnol/session/${threadId}/summary`)
+        return response.data
+    },
+
+    uploadDocument: async (
+        threadId: string,
+        file: File,
+        evidenceType: string = 'photo'
+    ): Promise<{ evidence_id: string; evidence_type: string; upload_status: string }> => {
+        const formData = new FormData()
+        formData.append('file', file)
+        formData.append('evidence_type', evidenceType)
+
+        const response = await api.post(`/fnol/session/${threadId}/document`, formData, {
+            headers: { 'Content-Type': 'multipart/form-data' },
+        })
+        return response.data
+    },
+
+    resumeSession: async (threadId: string): Promise<FNOLSessionResponse> => {
+        const response = await api.post(`/fnol/session/${threadId}/resume`)
+        return response.data
+    },
+}
+
 export default api

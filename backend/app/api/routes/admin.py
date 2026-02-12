@@ -22,8 +22,14 @@ router = APIRouter()
 
 # Request/Response schemas
 class LLMSettingsRequest(BaseModel):
-    llm_provider: str  # "bedrock" or "ollama"
+    llm_provider: str  # "openai", "bedrock" or "ollama"
+    # OpenAI settings
+    openai_api_key: Optional[str] = None
+    openai_model: Optional[str] = None
+    openai_vision_model: Optional[str] = None
+    # Bedrock settings
     bedrock_model: Optional[str] = None
+    # Ollama settings
     ollama_model: Optional[str] = None
     ollama_vision_model: Optional[str] = None
     ollama_endpoint: Optional[str] = None
@@ -31,7 +37,13 @@ class LLMSettingsRequest(BaseModel):
 
 class LLMSettingsResponse(BaseModel):
     llm_provider: str
+    # OpenAI settings (API key is masked for security)
+    openai_api_key_configured: bool
+    openai_model: str
+    openai_vision_model: str
+    # Bedrock settings
     bedrock_model: str
+    # Ollama settings
     ollama_model: str
     ollama_vision_model: str
     ollama_endpoint: str
@@ -85,8 +97,17 @@ async def get_llm_settings(
     db: Session = Depends(get_db),
 ):
     """Get current LLM provider settings."""
+    # Check if OpenAI API key is configured (don't return the actual key)
+    openai_key = get_setting(db, "openai_api_key", "")
+    if not openai_key:
+        from app.core.config import settings as app_settings
+        openai_key = app_settings.OPENAI_API_KEY
+    
     return LLMSettingsResponse(
-        llm_provider=get_setting(db, "llm_provider", "ollama"),
+        llm_provider=get_setting(db, "llm_provider", "openai"),
+        openai_api_key_configured=bool(openai_key),
+        openai_model=get_setting(db, "openai_model", "gpt-4o-mini"),
+        openai_vision_model=get_setting(db, "openai_vision_model", "gpt-4o-mini"),
         bedrock_model=get_setting(db, "bedrock_model", "anthropic.claude-3-sonnet-20240229-v1:0"),
         ollama_model=get_setting(db, "ollama_model", "llama3"),
         ollama_vision_model=get_setting(db, "ollama_vision_model", "llava"),
@@ -103,16 +124,27 @@ async def update_llm_settings(
     """Update LLM provider settings."""
     user_id = payload.get("sub")
     
-    if request.llm_provider not in ["bedrock", "ollama"]:
+    if request.llm_provider not in ["openai", "bedrock", "ollama"]:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid LLM provider. Must be 'bedrock' or 'ollama'",
+            detail="Invalid LLM provider. Must be 'openai', 'bedrock' or 'ollama'",
         )
     
     set_setting(db, "llm_provider", request.llm_provider, user_id)
     
+    # OpenAI settings
+    if request.openai_api_key:
+        set_setting(db, "openai_api_key", request.openai_api_key, user_id)
+    if request.openai_model:
+        set_setting(db, "openai_model", request.openai_model, user_id)
+    if request.openai_vision_model:
+        set_setting(db, "openai_vision_model", request.openai_vision_model, user_id)
+    
+    # Bedrock settings
     if request.bedrock_model:
         set_setting(db, "bedrock_model", request.bedrock_model, user_id)
+    
+    # Ollama settings
     if request.ollama_model:
         set_setting(db, "ollama_model", request.ollama_model, user_id)
     if request.ollama_vision_model:

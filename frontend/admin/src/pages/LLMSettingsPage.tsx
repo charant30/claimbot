@@ -4,16 +4,29 @@ import './LLMSettingsPage.css'
 
 interface LLMSettings {
     llm_provider: string
+    // OpenAI
+    openai_api_key_configured: boolean
+    openai_api_key?: string
+    openai_model: string
+    openai_vision_model: string
+    // Bedrock
     bedrock_model: string
+    // Ollama
     ollama_model: string
+    ollama_vision_model: string
     ollama_endpoint: string
 }
 
 function LLMSettingsPage() {
     const [settings, setSettings] = useState<LLMSettings>({
-        llm_provider: 'ollama',
+        llm_provider: 'openai',
+        openai_api_key_configured: false,
+        openai_api_key: '',
+        openai_model: 'gpt-4o-mini',
+        openai_vision_model: 'gpt-4o-mini',
         bedrock_model: 'anthropic.claude-3-sonnet-20240229-v1:0',
         ollama_model: 'llama3',
+        ollama_vision_model: 'llava',
         ollama_endpoint: 'http://localhost:11434',
     })
     const [loading, setLoading] = useState(true)
@@ -24,7 +37,7 @@ function LLMSettingsPage() {
         const fetchSettings = async () => {
             try {
                 const data = await adminApi.getLLMSettings()
-                setSettings(data)
+                setSettings({ ...settings, ...data, openai_api_key: '' })
             } catch (error) {
                 console.error('Failed to fetch LLM settings:', error)
             } finally {
@@ -38,8 +51,15 @@ function LLMSettingsPage() {
         setSaving(true)
         setMessage(null)
         try {
-            await adminApi.updateLLMSettings(settings)
+            // Only send api_key if it was modified
+            const payload: any = { ...settings }
+            if (!payload.openai_api_key) {
+                delete payload.openai_api_key
+            }
+            await adminApi.updateLLMSettings(payload)
             setMessage({ type: 'success', text: 'Settings saved successfully!' })
+            // Clear the API key field after save
+            setSettings({ ...settings, openai_api_key: '' })
         } catch (error) {
             setMessage({ type: 'error', text: 'Failed to save settings' })
         } finally {
@@ -67,6 +87,14 @@ function LLMSettingsPage() {
 
                 <div className="provider-toggle">
                     <button
+                        className={`provider-btn ${settings.llm_provider === 'openai' ? 'active' : ''}`}
+                        onClick={() => setSettings({ ...settings, llm_provider: 'openai' })}
+                    >
+                        <span className="provider-icon">🤖</span>
+                        <span className="provider-name">OpenAI</span>
+                        <span className="provider-desc">ChatGPT / GPT-4o</span>
+                    </button>
+                    <button
                         className={`provider-btn ${settings.llm_provider === 'ollama' ? 'active' : ''}`}
                         onClick={() => setSettings({ ...settings, llm_provider: 'ollama' })}
                     >
@@ -85,6 +113,52 @@ function LLMSettingsPage() {
                 </div>
             </div>
 
+            {settings.llm_provider === 'openai' && (
+                <div className="settings-card">
+                    <h2>OpenAI Configuration</h2>
+                    <div className="form-grid">
+                        <div className="form-group">
+                            <label>API Key</label>
+                            <input
+                                type="password"
+                                value={settings.openai_api_key}
+                                onChange={(e) => setSettings({ ...settings, openai_api_key: e.target.value })}
+                                placeholder={settings.openai_api_key_configured ? '••••••••••••••••' : 'sk-...'}
+                            />
+                            <small>
+                                {settings.openai_api_key_configured
+                                    ? '✓ API key configured. Enter a new key to update.'
+                                    : 'Get your key from platform.openai.com/api-keys'}
+                            </small>
+                        </div>
+                        <div className="form-group">
+                            <label>Chat Model</label>
+                            <select
+                                value={settings.openai_model}
+                                onChange={(e) => setSettings({ ...settings, openai_model: e.target.value })}
+                            >
+                                <option value="gpt-4o-mini">GPT-4o Mini (Recommended)</option>
+                                <option value="gpt-4o">GPT-4o</option>
+                                <option value="gpt-4-turbo">GPT-4 Turbo</option>
+                                <option value="gpt-3.5-turbo">GPT-3.5 Turbo</option>
+                            </select>
+                        </div>
+                        <div className="form-group">
+                            <label>Vision Model (OCR)</label>
+                            <select
+                                value={settings.openai_vision_model}
+                                onChange={(e) => setSettings({ ...settings, openai_vision_model: e.target.value })}
+                            >
+                                <option value="gpt-4o-mini">GPT-4o Mini (Recommended)</option>
+                                <option value="gpt-4o">GPT-4o</option>
+                                <option value="gpt-4-turbo">GPT-4 Turbo</option>
+                            </select>
+                            <small>Used for document/image analysis</small>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {settings.llm_provider === 'ollama' && (
                 <div className="settings-card">
                     <h2>Ollama Configuration</h2>
@@ -98,6 +172,16 @@ function LLMSettingsPage() {
                                 placeholder="llama3"
                             />
                             <small>Common models: llama3, mistral, codellama, gemma</small>
+                        </div>
+                        <div className="form-group">
+                            <label>Vision Model</label>
+                            <input
+                                type="text"
+                                value={settings.ollama_vision_model}
+                                onChange={(e) => setSettings({ ...settings, ollama_vision_model: e.target.value })}
+                                placeholder="llava"
+                            />
+                            <small>Used for document/image analysis</small>
                         </div>
                         <div className="form-group">
                             <label>Endpoint URL</label>
@@ -147,3 +231,4 @@ function LLMSettingsPage() {
 }
 
 export default LLMSettingsPage
+

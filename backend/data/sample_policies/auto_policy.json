@@ -2,16 +2,63 @@
     "policy_number": "AUTO-2024-001234",
     "product_type": "auto",
     "holder": {
+        "first_name": "Michael",
+        "last_name": "Perez",
         "name": "Michael Perez",
-        "email": "michael.perez3@example.com"
+        "email": "michael.perez@example.com",
+        "phone": "555-123-4567",
+        "date_of_birth": "1985-03-15",
+        "address": "123 Main Street, Chicago, IL",
+        "zip": "60601"
     },
-    "vehicle": {
-        "year": 2021,
-        "make": "Honda",
-        "model": "Accord",
-        "vin": "1HGCG123456789012",
-        "color": "Silver"
-    },
+    "vehicles": [
+        {
+            "vin": "1HGCG5655WA123456",
+            "year": 2021,
+            "make": "Honda",
+            "model": "Accord",
+            "trim": "EX-L",
+            "body_type": "sedan",
+            "color": "Silver",
+            "license_plate": "ABC1234",
+            "license_state": "IL",
+            "ownership_status": "financed",
+            "annual_mileage": 12000,
+            "primary_use": "commute"
+        }
+    ],
+    "drivers": [
+        {
+            "first_name": "Michael",
+            "last_name": "Perez",
+            "date_of_birth": "1985-03-15",
+            "gender": "male",
+            "license_number": "P123456789",
+            "license_state": "IL",
+            "license_status": "valid",
+            "license_expiration": "2027-03-15",
+            "relationship": "self",
+            "is_primary": true,
+            "years_licensed": 20,
+            "accidents_3yr": 0,
+            "violations_3yr": 0
+        },
+        {
+            "first_name": "Maria",
+            "last_name": "Perez",
+            "date_of_birth": "1987-07-22",
+            "gender": "female",
+            "license_number": "P987654321",
+            "license_state": "IL",
+            "license_status": "valid",
+            "license_expiration": "2026-07-22",
+            "relationship": "spouse",
+            "is_primary": false,
+            "years_licensed": 15,
+            "accidents_3yr": 0,
+            "violations_3yr": 1
+        }
+    ],
     "effective_date": "2024-01-01",
     "expiration_date": "2025-12-31",
     "status": "active",
@@ -45,6 +92,14 @@
             "limit_amount": 100000,
             "deductible": 0,
             "description": "Covers you if hit by uninsured driver"
+        },
+        {
+            "coverage_type": "rental_reimbursement",
+            "limit_amount": 1500,
+            "deductible": 0,
+            "daily_limit": 50,
+            "max_days": 30,
+            "description": "Covers rental car while yours is being repaired"
         }
     ],
     "exclusions": [

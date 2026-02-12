@@ -12,7 +12,7 @@ from sqlalchemy.pool import StaticPool
 from main import app
 from app.db.base import Base
 from app.db.session import get_db
-from app.core.security import create_access_token, get_password_hash
+from app.core.security import create_access_token, hash_password
 
 
 # Use in-memory SQLite for testing
@@ -63,7 +63,7 @@ def test_user(db: Session):
 
     user = User(
         email="test@example.com",
-        password_hash=get_password_hash("testpass123"),
+        password_hash=hash_password("testpass123"),
         name="Test User",
         role=UserRole.CUSTOMER,
         auth_level=AuthLevel.AUTH,
@@ -81,7 +81,7 @@ def test_admin(db: Session):
 
     admin = User(
         email="admin@example.com",
-        password_hash=get_password_hash("adminpass123"),
+        password_hash=hash_password("adminpass123"),
         name="Test Admin",
         role=UserRole.ADMIN,
         auth_level=AuthLevel.AUTH,
@@ -99,7 +99,7 @@ def test_celest(db: Session):
 
     celest = User(
         email="celest@example.com",
-        password_hash=get_password_hash("celestpass123"),
+        password_hash=hash_password("celestpass123"),
         name="Test Agent",
         role=UserRole.CELEST,
         auth_level=AuthLevel.AUTH,

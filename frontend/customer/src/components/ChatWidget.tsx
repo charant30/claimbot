@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useChatStore, PRODUCT_OPTIONS, INTENT_OPTIONS } from '../stores/chatStore'
 import { useAuthStore } from '../stores/authStore'
 import GuestForm from './GuestForm'
@@ -7,14 +8,16 @@ import DocumentUploadPanel from './DocumentUploadPanel'
 import './ChatWidget.css'
 
 function ChatWidget() {
+    const navigate = useNavigate()
     const {
         isOpen, toggleChat, messages, isLoading, sendMessage,
         startSession, threadId, flowStage, selectProduct, selectIntent,
-        submitClaimForm, uploadDocument, claimId, documents
+        submitClaimForm, uploadDocument, claimId, documents, clearChat
     } = useChatStore()
     const { isAuthenticated } = useAuthStore()
     const [input, setInput] = useState('')
     const [showGuestForm, setShowGuestForm] = useState(false)
+    const [showMenu, setShowMenu] = useState(false)
     const messagesEndRef = useRef<HTMLDivElement>(null)
 
     useEffect(() => {
@@ -51,7 +54,27 @@ function ChatWidget() {
     }
 
     const handleIntentSelect = async (intentId: string) => {
-        await selectIntent(intentId)
+        const result = await selectIntent(intentId)
+        // Navigate to FNOL page for auto insurance claims
+        if (result?.navigateToFNOL) {
+            navigate('/fnol')
+        }
+    }
+
+    const handleEndChat = () => {
+        clearChat()
+        setShowMenu(false)
+        toggleChat()
+    }
+
+    const handleNewChat = async () => {
+        clearChat()
+        setShowMenu(false)
+        if (isAuthenticated) {
+            await startSession()
+        } else {
+            setShowGuestForm(true)
+        }
     }
 
     return (
@@ -83,11 +106,42 @@ function ChatWidget() {
                             <p className="chat-subtitle">Insurance Assistant</p>
                         </div>
                     </div>
-                    <button className="chat-close" onClick={toggleChat}>
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                            <path d="M6 18L18 6M6 6l12 12" />
-                        </svg>
-                    </button>
+                    <div className="chat-header-actions">
+                        <div className="chat-menu-container">
+                            <button
+                                className="chat-menu-btn"
+                                onClick={() => setShowMenu(!showMenu)}
+                                aria-label="Chat options"
+                            >
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                    <circle cx="12" cy="12" r="1" />
+                                    <circle cx="12" cy="5" r="1" />
+                                    <circle cx="12" cy="19" r="1" />
+                                </svg>
+                            </button>
+                            {showMenu && (
+                                <div className="chat-menu">
+                                    <button onClick={handleNewChat}>
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                            <path d="M12 5v14M5 12h14" />
+                                        </svg>
+                                        New Chat
+                                    </button>
+                                    <button onClick={handleEndChat} className="end-chat">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                            <path d="M18 6L6 18M6 6l12 12" />
+                                        </svg>
+                                        End Chat
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+                        <button className="chat-close" onClick={toggleChat}>
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                <path d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                        </button>
+                    </div>
                 </div>
 
                 {showGuestForm ? (

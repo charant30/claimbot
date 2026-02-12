@@ -879,3 +879,6 @@ async def get_case_notes(
     notes = case.case_packet.get("notes", [])
 
     return {"case_id": str(case_id), "notes": notes}
+
+
+

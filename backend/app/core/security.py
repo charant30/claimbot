@@ -92,3 +92,30 @@ def require_role(allowed_roles: list[str]):
             )
         return payload
     return role_checker
+
+
+# Optional security scheme for guest access
+optional_security = HTTPBearer(auto_error=False)
+
+
+async def get_optional_user_id(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(optional_security)
+) -> Optional[str]:
+    """
+    Extract user ID from JWT token if present, otherwise return None.
+
+    Use this for endpoints that support both authenticated and guest access.
+    """
+    if credentials is None:
+        return None
+
+    try:
+        payload = jwt.decode(
+            credentials.credentials,
+            settings.SECRET_KEY,
+            algorithms=[settings.JWT_ALGORITHM]
+        )
+        return payload.get("sub")
+    except JWTError:
+        # Token invalid, treat as guest
+        return None

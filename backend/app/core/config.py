@@ -2,7 +2,7 @@
 Application Configuration
 """
 from functools import lru_cache
-from typing import Literal
+from typing import Literal, Optional
 
 from pydantic_settings import BaseSettings
 from pydantic import model_validator
@@ -24,8 +24,13 @@ class Settings(BaseSettings):
     # Redis
     REDIS_URL: str = "redis://localhost:6379/0"
 
-    # LLM Provider
-    LLM_PROVIDER: Literal["bedrock", "ollama"] = "ollama"
+    # LLM Provider (openai is default, can be changed via admin dashboard)
+    LLM_PROVIDER: Literal["openai", "bedrock", "ollama"] = "openai"
+
+    # OpenAI / ChatGPT Settings
+    OPENAI_API_KEY: str = ""
+    OPENAI_MODEL: str = "gpt-4o-mini"
+    OPENAI_VISION_MODEL: str = "gpt-4o-mini"
 
     # AWS Bedrock
     AWS_REGION: str = "us-east-1"

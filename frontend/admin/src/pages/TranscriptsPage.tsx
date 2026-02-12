@@ -2,6 +2,29 @@ import { useState, useEffect, useCallback } from 'react'
 import { adminApi } from '../services/api'
 import './TranscriptsPage.css'
 
+/**
+ * Render basic markdown (bold, italic) in a single line of text.
+ * Escapes HTML first for safety, then converts markdown syntax to HTML.
+ * (Duplicated from customer frontend for standalone utility)
+ */
+function renderMarkdownLine(text: string): string {
+    // Escape HTML entities to prevent XSS
+    let html = text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+    // Bold: **text** or __text__
+    html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    html = html.replace(/__(.+?)__/g, '<strong>$1</strong>')
+    // Italic: *text* (single asterisk, not inside bold)
+    html = html.replace(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g, '<em>$1</em>')
+    // Bullet points: lines starting with • or -
+    if (html.trimStart().startsWith('•') || html.trimStart().startsWith('-')) {
+        html = html.replace(/^\s*[•\-]\s*/, '&bull; ')
+    }
+    return html
+}
+
 interface Transcript {
     thread_id: string
     user_id: string
@@ -30,6 +53,7 @@ function TranscriptsPage() {
     const [selectedTranscript, setSelectedTranscript] = useState<string | null>(null)
     const [transcriptDetail, setTranscriptDetail] = useState<TranscriptDetail | null>(null)
     const [loadingDetail, setLoadingDetail] = useState(false)
+    const [detailError, setDetailError] = useState<string | null>(null)
     const [autoRefresh, setAutoRefresh] = useState(true)
 
     const fetchTranscripts = useCallback(async () => {
@@ -63,34 +87,54 @@ function TranscriptsPage() {
     useEffect(() => {
         if (!selectedTranscript) {
             setTranscriptDetail(null)
+            setDetailError(null)
             return
         }
 
+        let isCancelled = false
+
         const fetchDetail = async () => {
             setLoadingDetail(true)
+            setDetailError(null)
             try {
                 const detail = await adminApi.getTranscriptDetail(selectedTranscript)
-                setTranscriptDetail(detail)
-            } catch (error) {
+                if (!isCancelled) {
+                    setTranscriptDetail(detail)
+                    setDetailError(null)
+                }
+            } catch (error: any) {
                 console.error('Failed to fetch transcript detail:', error)
-                setTranscriptDetail(null)
+                if (!isCancelled) {
+                    const status = error.response?.status
+                    if (status === 404) {
+                        // Session expired from memory — clear selection
+                        setDetailError('This session has expired and is no longer available.')
+                        setTranscriptDetail(null)
+                    } else {
+                        setDetailError('Failed to load transcript detail.')
+                        setTranscriptDetail(null)
+                    }
+                }
             } finally {
-                setLoadingDetail(false)
+                if (!isCancelled) {
+                    setLoadingDetail(false)
+                }
             }
         }
 
         fetchDetail()
 
-        // Auto-refresh detail if viewing live
+        // Auto-refresh detail only if no error
         let interval: ReturnType<typeof setInterval> | null = null
-        if (autoRefresh) {
+        if (autoRefresh && !detailError) {
             interval = setInterval(fetchDetail, 3000)
         }
 
         return () => {
+            isCancelled = true
             if (interval) clearInterval(interval)
         }
-    }, [selectedTranscript, autoRefresh])
+    }, [selectedTranscript, autoRefresh, detailError])
 
     const formatTime = (dateStr: string) => {
         if (!dateStr) return 'Unknown'
@@ -167,6 +211,17 @@ function TranscriptsPage() {
                         </div>
                     ) : loadingDetail ? (
                         <div className="loading-detail">Loading messages...</div>
+                    ) : detailError ? (
+                        <div className="error-detail">
+                            <span className="empty-icon">⚠️</span>
+                            <p>{detailError}</p>
+                            <button
+                                className="btn btn-secondary"
+                                onClick={() => { setSelectedTranscript(null); setDetailError(null); }}
+                            >
+                                Back to List
+                            </button>
+                        </div>
                     ) : transcriptDetail ? (
                         <>
                             <div className="detail-header">
@@ -186,7 +241,11 @@ function TranscriptsPage() {
                                     transcriptDetail.messages.map((msg, idx) => (
                                         <div key={msg.message_id || idx} className={`message ${msg.role}`}>
                                             <div className="message-role">{msg.role === 'user' ? 'Customer' : 'ClaimBot'}</div>
-                                            <div className="message-content">{msg.content}</div>
+                                            <div className="message-content">
+                                                {msg.content.split('\n').map((line, i) => (
+                                                    <p key={i} style={{ margin: 0, minHeight: '1em' }} dangerouslySetInnerHTML={{ __html: renderMarkdownLine(line) }} />
+                                                ))}
+                                            </div>
                                             {msg.metadata && Object.keys(msg.metadata).length > 0 && (
                                                 <div className="message-metadata">
                                                     {msg.metadata.intent && <span>Intent: {msg.metadata.intent}</span>}

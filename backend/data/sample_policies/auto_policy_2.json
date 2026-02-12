@@ -1,0 +1,94 @@
+{
+    "policy_number": "AUTO-2024-005678",
+    "product_type": "auto",
+    "holder": {
+        "first_name": "Sarah",
+        "last_name": "Johnson",
+        "name": "Sarah Johnson",
+        "email": "sarah.johnson@example.com",
+        "phone": "555-987-6543",
+        "date_of_birth": "1990-11-28",
+        "address": "456 Oak Avenue, Los Angeles, CA",
+        "zip": "90001"
+    },
+    "vehicles": [
+        {
+            "vin": "5YFBURHE1FP123456",
+            "year": 2023,
+            "make": "Toyota",
+            "model": "Camry",
+            "trim": "SE",
+            "body_type": "sedan",
+            "color": "Blue",
+            "license_plate": "7XYZ890",
+            "license_state": "CA",
+            "ownership_status": "owned",
+            "annual_mileage": 15000,
+            "primary_use": "commute"
+        },
+        {
+            "vin": "JTDKN3DU5A0123456",
+            "year": 2020,
+            "make": "Toyota",
+            "model": "Prius",
+            "trim": "LE",
+            "body_type": "hatchback",
+            "color": "White",
+            "license_plate": "8ABC123",
+            "license_state": "CA",
+            "ownership_status": "owned",
+            "annual_mileage": 8000,
+            "primary_use": "pleasure"
+        }
+    ],
+    "drivers": [
+        {
+            "first_name": "Sarah",
+            "last_name": "Johnson",
+            "date_of_birth": "1990-11-28",
+            "gender": "female",
+            "license_number": "D1234567",
+            "license_state": "CA",
+            "license_status": "valid",
+            "license_expiration": "2028-11-28",
+            "relationship": "self",
+            "is_primary": true,
+            "years_licensed": 15,
+            "accidents_3yr": 0,
+            "violations_3yr": 0
+        }
+    ],
+    "effective_date": "2024-03-01",
+    "expiration_date": "2025-02-28",
+    "status": "active",
+    "coverages": [
+        {
+            "coverage_type": "collision",
+            "limit_amount": 75000,
+            "deductible": 1000,
+            "description": "Covers damage to your vehicle from collisions"
+        },
+        {
+            "coverage_type": "comprehensive",
+            "limit_amount": 75000,
+            "deductible": 500,
+            "description": "Covers non-collision damage (theft, weather, vandalism)"
+        },
+        {
+            "coverage_type": "liability_bodily",
+            "limit_amount": 250000,
+            "deductible": 0,
+            "description": "Covers injuries to others when you're at fault"
+        },
+        {
+            "coverage_type": "liability_property",
+            "limit_amount": 100000,
+            "deductible": 0,
+            "description": "Covers damage to others' property when you're at fault"
+        }
+    ],
+    "premium": {
+        "monthly": 175.00,
+        "annual": 2100.00
+    }
+}

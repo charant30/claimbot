@@ -13,6 +13,7 @@ from app.core.logging import logger
 
 
 class LLMProvider(str, Enum):
+    OPENAI = "openai"
     BEDROCK = "bedrock"
     OLLAMA = "ollama"
 
@@ -28,6 +29,24 @@ def get_configured_provider(db: Session) -> str:
     if setting:
         return setting.value
     return settings.LLM_PROVIDER
+
+
+def get_openai_settings(db: Session) -> dict:
+    """Get OpenAI configuration from database."""
+    from app.db.models import SystemSettings
+    
+    api_key_setting = db.query(SystemSettings).filter(
+        SystemSettings.key == "openai_api_key"
+    ).first()
+    
+    model_setting = db.query(SystemSettings).filter(
+        SystemSettings.key == "openai_model"
+    ).first()
+    
+    return {
+        "api_key": api_key_setting.value if api_key_setting else settings.OPENAI_API_KEY,
+        "model": model_setting.value if model_setting else settings.OPENAI_MODEL,
+    }
 
 
 def get_ollama_settings(db: Session) -> dict:
@@ -66,7 +85,7 @@ def get_llm(db: Optional[Session] = None) -> BaseChatModel:
     """
     Get the configured LLM instance.
     
-    Admin can switch between Bedrock and Ollama via dashboard.
+    Admin can switch between OpenAI, Bedrock and Ollama via dashboard.
     All requests go to the configured provider.
     """
     # Determine provider
@@ -77,9 +96,41 @@ def get_llm(db: Optional[Session] = None) -> BaseChatModel:
     
     logger.info(f"Using LLM provider: {provider}")
     
-    if provider == LLMProvider.BEDROCK.value:
+    if provider == LLMProvider.OPENAI.value:
+        return _get_openai_llm(db)
+    elif provider == LLMProvider.BEDROCK.value:
         return _get_bedrock_llm(db)
     else:
+        return _get_ollama_llm(db)
+
+
+def _get_openai_llm(db: Optional[Session] = None) -> BaseChatModel:
+    """Get OpenAI LLM instance."""
+    try:
+        from langchain_openai import ChatOpenAI
+        
+        if db:
+            config = get_openai_settings(db)
+        else:
+            config = {
+                "api_key": settings.OPENAI_API_KEY,
+                "model": settings.OPENAI_MODEL,
+            }
+        
+        if not config["api_key"]:
+            logger.warning("OpenAI API key not configured, falling back to Ollama")
+            return _get_ollama_llm(db)
+        
+        return ChatOpenAI(
+            model=config["model"],
+            api_key=config["api_key"],
+            temperature=0.7,
+        )
+    except ImportError:
+        logger.warning("langchain-openai not installed, falling back to Ollama")
+        return _get_ollama_llm(db)
+    except Exception as e:
+        logger.error(f"Failed to initialize OpenAI: {e}, falling back to Ollama")
         return _get_ollama_llm(db)
 
 
@@ -133,3 +184,4 @@ def _get_bedrock_llm(db: Optional[Session] = None) -> BaseChatModel:
     except Exception as e:
         logger.error(f"Failed to initialize Bedrock: {e}, falling back to Ollama")
         return _get_ollama_llm(db)
+

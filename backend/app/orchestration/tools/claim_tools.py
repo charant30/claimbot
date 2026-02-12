@@ -74,6 +74,38 @@ def get_claim_status(claim_id: str, db: Session) -> dict:
 
 
 @tool
+def get_claim_by_number(claim_number: str, db: Session) -> dict:
+    """
+    Get claim details by claim number.
+    
+    Args:
+        claim_number: The claim number (e.g. INC-1234)
+        db: Database session
+        
+    Returns:
+        Claim details or error
+    """
+    try:
+        claim = db.query(Claim).filter(Claim.claim_number == claim_number).first()
+        if not claim:
+            return {"error": f"Claim {claim_number} not found"}
+        
+        return {
+            "claim_id": str(claim.claim_id),
+            "claim_number": claim.claim_number,
+            "status": claim.status.value,
+            "incident_date": claim.incident_date.isoformat(),
+            "loss_amount": float(claim.loss_amount),
+            "paid_amount": float(claim.paid_amount),
+            "description": claim.incident_description,
+            "timeline": claim.timeline or [],
+        }
+    except Exception as e:
+        return {"error": f"Error retrieving claim: {str(e)}"}
+
+
+
+@tool
 def calculate_incident_claim_payout(
     loss_amount: float,
     coverage_type: str,
@@ -225,7 +257,7 @@ def check_provider_network(provider_npi: str, db: Session) -> dict:
 
 
 # Export tools for use in graphs
-POLICY_TOOLS = [get_policy_details, get_claim_status]
+POLICY_TOOLS = [get_policy_details, get_claim_status, get_claim_by_number]
 INCIDENT_TOOLS = [calculate_incident_claim_payout]
 MEDICAL_TOOLS = [calculate_medical_claim_payout, check_provider_network]
 ALL_TOOLS = POLICY_TOOLS + INCIDENT_TOOLS + MEDICAL_TOOLS

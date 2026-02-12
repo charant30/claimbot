@@ -5,8 +5,47 @@
 .page-header {
     display: flex;
     align-items: center;
+    justify-content: space-between;
     gap: var(--space-md);
     margin-bottom: var(--space-xl);
+}
+
+.header-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-md);
+}
+
+.queue-error {
+    display: flex;
+    align-items: center;
+    gap: var(--space-md);
+    padding: var(--space-lg);
+    background: rgba(220, 38, 38, 0.1);
+    border: 1px solid rgba(220, 38, 38, 0.3);
+    border-radius: var(--border-radius-lg);
+    margin-bottom: var(--space-xl);
+}
+
+.queue-error .error-icon {
+    font-size: 1.5rem;
+    flex-shrink: 0;
+}
+
+.queue-error h3 {
+    font-size: 1rem;
+    color: var(--text-primary);
+    margin-bottom: var(--space-xs);
+}
+
+.queue-error p {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+}
+
+.queue-error .btn {
+    flex-shrink: 0;
+    margin-left: auto;
 }
 
 .page-header h1 {

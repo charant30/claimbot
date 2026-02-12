@@ -92,6 +92,84 @@
     margin: 0;
 }
 
+.chat-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.chat-menu-container {
+    position: relative;
+}
+
+.chat-menu-btn {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.2);
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.2s;
+}
+
+.chat-menu-btn:hover {
+    background: rgba(255, 255, 255, 0.3);
+}
+
+.chat-menu-btn svg {
+    width: 16px;
+    height: 16px;
+}
+
+.chat-menu {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    margin-top: 8px;
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    overflow: hidden;
+    min-width: 140px;
+    z-index: 100;
+    animation: fadeIn 0.2s ease;
+}
+
+.chat-menu button {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 10px 14px;
+    background: none;
+    border: none;
+    color: #374151;
+    font-size: 13px;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.chat-menu button:hover {
+    background: #f3f4f6;
+}
+
+.chat-menu button svg {
+    width: 14px;
+    height: 14px;
+    color: #6b7280;
+}
+
+.chat-menu button.end-chat {
+    color: #dc2626;
+    border-top: 1px solid #e5e7eb;
+}
+
+.chat-menu button.end-chat svg {
+    color: #dc2626;
+}
+
 .chat-close {
     width: 32px;
     height: 32px;

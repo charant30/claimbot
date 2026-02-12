@@ -28,6 +28,8 @@ class ConversationState(TypedDict):
     user_id: str
     policy_id: Optional[str]
     claim_id: Optional[str]
+    claim_number: Optional[str]
+    claim_details: Optional[dict]
     
     # Conversation
     messages: Annotated[List[dict], operator.add]
@@ -80,6 +82,8 @@ def create_initial_state(
         user_id=user_id,
         policy_id=policy_id,
         claim_id=None,
+        claim_number=None,
+        claim_details=None,
         messages=[],
         current_input="",
         intent=None,

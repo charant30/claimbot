@@ -8,6 +8,7 @@ from app.core.security import (
     create_access_token,
     decode_access_token,
     get_current_user_id,
+    get_optional_user_id,
     require_role,
 )
 from app.core.logging import logger, log_audit_event
@@ -15,10 +16,11 @@ from app.core.logging import logger, log_audit_event
 __all__ = [
     "settings",
     "hash_password",
-    "verify_password", 
+    "verify_password",
     "create_access_token",
     "decode_access_token",
     "get_current_user_id",
+    "get_optional_user_id",
     "require_role",
     "logger",
     "log_audit_event",

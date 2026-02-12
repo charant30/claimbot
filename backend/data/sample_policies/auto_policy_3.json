@@ -1,0 +1,159 @@
+{
+    "policy_number": "AUTO-2024-009012",
+    "product_type": "auto",
+    "holder": {
+        "first_name": "Robert",
+        "last_name": "Williams",
+        "name": "Robert Williams",
+        "email": "robert.williams@example.com",
+        "phone": "555-456-7890",
+        "date_of_birth": "1975-06-10",
+        "address": "789 Pine Street, Houston, TX",
+        "zip": "77001"
+    },
+    "vehicles": [
+        {
+            "vin": "1FTFW1ET5DFA12345",
+            "year": 2022,
+            "make": "Ford",
+            "model": "F-150",
+            "trim": "XLT",
+            "body_type": "truck",
+            "color": "Black",
+            "license_plate": "TX12345",
+            "license_state": "TX",
+            "ownership_status": "financed",
+            "lienholder_name": "Ford Motor Credit",
+            "annual_mileage": 18000,
+            "primary_use": "business"
+        },
+        {
+            "vin": "1ZVBP8AM1D5234567",
+            "year": 2019,
+            "make": "Ford",
+            "model": "Mustang",
+            "trim": "GT",
+            "body_type": "coupe",
+            "color": "Red",
+            "license_plate": "TX67890",
+            "license_state": "TX",
+            "ownership_status": "owned",
+            "annual_mileage": 5000,
+            "primary_use": "pleasure"
+        },
+        {
+            "vin": "1FAHP3F29CL345678",
+            "year": 2021,
+            "make": "Ford",
+            "model": "Focus",
+            "trim": "SE",
+            "body_type": "sedan",
+            "color": "Gray",
+            "license_plate": "TX11111",
+            "license_state": "TX",
+            "ownership_status": "owned",
+            "annual_mileage": 12000,
+            "primary_use": "commute"
+        }
+    ],
+    "drivers": [
+        {
+            "first_name": "Robert",
+            "last_name": "Williams",
+            "date_of_birth": "1975-06-10",
+            "gender": "male",
+            "license_number": "12345678",
+            "license_state": "TX",
+            "license_status": "valid",
+            "license_expiration": "2029-06-10",
+            "relationship": "self",
+            "is_primary": true,
+            "years_licensed": 32,
+            "accidents_3yr": 1,
+            "violations_3yr": 0
+        },
+        {
+            "first_name": "Linda",
+            "last_name": "Williams",
+            "date_of_birth": "1978-09-15",
+            "gender": "female",
+            "license_number": "87654321",
+            "license_state": "TX",
+            "license_status": "valid",
+            "license_expiration": "2027-09-15",
+            "relationship": "spouse",
+            "is_primary": false,
+            "years_licensed": 28,
+            "accidents_3yr": 0,
+            "violations_3yr": 1
+        },
+        {
+            "first_name": "James",
+            "last_name": "Williams",
+            "date_of_birth": "2004-03-22",
+            "gender": "male",
+            "license_number": "11223344",
+            "license_state": "TX",
+            "license_status": "valid",
+            "license_expiration": "2030-03-22",
+            "relationship": "child",
+            "is_primary": false,
+            "years_licensed": 2,
+            "accidents_3yr": 0,
+            "violations_3yr": 0
+        }
+    ],
+    "effective_date": "2024-06-01",
+    "expiration_date": "2025-05-31",
+    "status": "active",
+    "coverages": [
+        {
+            "coverage_type": "collision",
+            "limit_amount": 100000,
+            "deductible": 500,
+            "description": "Covers damage to your vehicle from collisions"
+        },
+        {
+            "coverage_type": "comprehensive",
+            "limit_amount": 100000,
+            "deductible": 250,
+            "description": "Covers non-collision damage (theft, weather, vandalism)"
+        },
+        {
+            "coverage_type": "liability_bodily",
+            "limit_amount": 500000,
+            "deductible": 0,
+            "description": "Covers injuries to others when you're at fault"
+        },
+        {
+            "coverage_type": "liability_property",
+            "limit_amount": 250000,
+            "deductible": 0,
+            "description": "Covers damage to others' property when you're at fault"
+        },
+        {
+            "coverage_type": "uninsured_motorist",
+            "limit_amount": 250000,
+            "deductible": 0,
+            "description": "Covers you if hit by uninsured driver"
+        },
+        {
+            "coverage_type": "medical_payments",
+            "limit_amount": 10000,
+            "deductible": 0,
+            "description": "Covers medical expenses regardless of fault"
+        },
+        {
+            "coverage_type": "rental_reimbursement",
+            "limit_amount": 2100,
+            "deductible": 0,
+            "daily_limit": 70,
+            "max_days": 30,
+            "description": "Covers rental car while yours is being repaired"
+        }
+    ],
+    "premium": {
+        "monthly": 325.00,
+        "annual": 3900.00
+    }
+}

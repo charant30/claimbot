@@ -25,6 +25,8 @@ langchain>=0.1.0
 langchain-aws>=0.1.0
 langchain-community>=0.0.13
 langchain-ollama>=0.0.1
+langchain-openai>=0.1.0
+openai>=1.0.0
 langgraph-checkpoint-postgres>=1.0.0
 
 # Observability

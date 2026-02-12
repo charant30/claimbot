@@ -18,6 +18,9 @@ from app.services.document_verification import (
     DiscrepancySeverity,
 )
 from app.core.logging import logger
+from app.db.session import SessionLocal
+from app.orchestration.tools.claim_tools import get_claim_by_number
+import re
 
 
 # Security instructions to include in all prompts
@@ -67,6 +70,7 @@ Current context:
 - Product: {{product_line}}
 - Collected fields: {{collected_fields}}
 - Missing fields: {{missing_fields}}
+- Claim Details: {{claim_details}}
 
 Respond naturally but briefly to help the customer."""
 
@@ -74,7 +78,9 @@ Respond naturally but briefly to help the customer."""
 def classify_intent(state: ConversationState) -> ConversationState:
     """Classify user's intent."""
     # If we already have intent and product, skip classification and continue with subgraph
-    if state.get("intent") and state.get("product_line"):
+    # ONLY for file_claim — other intents (check_status, coverage_question, billing) should
+    # always re-classify so the user can change intent (e.g. "connect to specialist")
+    if state.get("intent") == ClaimIntent.FILE_CLAIM.value and state.get("product_line"):
         logger.info(f"Skipping classification, continuing with intent={state['intent']}, product={state['product_line']}")
         return {
             **state,
@@ -128,10 +134,16 @@ def classify_intent(state: ConversationState) -> ConversationState:
             "next_step": "escalate",
         }
 
+    next_step = "generate_response"
+    if intent == ClaimIntent.FILE_CLAIM.value:
+        next_step = "classify_product"
+    elif intent == ClaimIntent.CHECK_STATUS.value:
+        next_step = "agent_status"
+
     return {
         **state,
         "intent": intent,
-        "next_step": "classify_product" if intent == ClaimIntent.FILE_CLAIM.value else "generate_response",
+        "next_step": next_step,
     }
 
 
@@ -372,6 +384,55 @@ def agent_decision(state: ConversationState) -> ConversationState:
     return {**state, "next_step": "route_to_subgraph"}
 
 
+def agent_status(state: ConversationState) -> ConversationState:
+    """Check claim status if intent is check_status."""
+    claim_number = state.get("claim_number")
+    current_input = state.get("current_input", "")
+    
+    # Try to extract claim number if not set (or if user provides a different one)
+    # Regex for common formats (INC-*, CLM-*, AUT-*, etc.)
+    match = re.search(r"([A-Z]{3,}-[A-Z0-9]+)", current_input, re.IGNORECASE)
+    if match:
+        extracted = match.group(0).upper()
+        # If we found a new claim number, update it
+        if extracted != claim_number:
+            claim_number = extracted
+            
+    if not claim_number:
+        # Prompt user for claim number
+        return {
+            **state,
+            "next_step": "generate_response",
+        }
+
+    # Fetch claim details
+    db = SessionLocal()
+    try:
+        result = get_claim_by_number(claim_number, db)
+    finally:
+        db.close()
+        
+    state = _append_agent_trace(state, "agent_status", {"found": "error" not in result})
+    
+    if "error" in result:
+        # Claim not found
+        return {
+            **state,
+            "claim_number": claim_number,
+            "claim_details": {"error": result["error"]},
+            "next_step": "generate_response", 
+        }
+        
+    return {
+        **state,
+        "claim_number": claim_number,
+        "claim_details": result,
+        # Infer product line from claim product if not set
+        "product_line": state.get("product_line") or (ProductLine.AUTO.value if "auto" in str(result.get("description", "")).lower() else None),
+        "next_step": "generate_response",
+    }
+
+
 def generate_response(state: ConversationState) -> ConversationState:
     """Generate conversational response."""
     llm = get_llm()
@@ -383,6 +444,7 @@ def generate_response(state: ConversationState) -> ConversationState:
         product_line=state.get("product_line", "not determined"),
         collected_fields=state.get("collected_fields", {}),
         missing_fields=state.get("missing_fields", []),
+        claim_details=state.get("claim_details", "Not checked"),
     )
 
     messages = [
@@ -523,6 +585,7 @@ def build_supervisor_graph() -> StateGraph:
     workflow.add_node("agent_documents", agent_documents)
     workflow.add_node("agent_policy", agent_policy)
     workflow.add_node("agent_decision", agent_decision)
+    workflow.add_node("agent_status", agent_status)
     
     # Add subgraph nodes
     workflow.add_node("incident_subgraph", incident_graph)
@@ -544,9 +607,12 @@ def build_supervisor_graph() -> StateGraph:
             "classify_product": "classify_product",
             "generate_response": "generate_response",
             "escalate": "escalate",
-            "route_to_subgraph": "route_to_subgraph",  # For continuation after classification skipped
+            "route_to_subgraph": "route_to_subgraph",
+            "agent_status": "agent_status",
         }
     )
+
+    workflow.add_edge("agent_status", "generate_response")
     
     workflow.add_conditional_edges(
         "classify_product",

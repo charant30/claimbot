@@ -14,6 +14,7 @@ from app.db.base import Base
 
 class DocumentType(str, PyEnum):
     PHOTO = "photo"
+    INCIDENT_PHOTOS = "incident_photos"
     POLICE_REPORT = "police_report"
     MEDICAL_RECORD = "medical_record"
     EOB = "eob"  # Explanation of Benefits
@@ -29,7 +30,7 @@ class Document(Base):
     
     doc_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     claim_id = Column(UUID(as_uuid=True), ForeignKey("claims.claim_id"), nullable=False)
-    doc_type = Column(Enum(DocumentType), nullable=False)
+    doc_type = Column(Enum(DocumentType, values_callable=lambda x: [e.value for e in x]), nullable=False)
     filename = Column(String(255), nullable=False)
     storage_url = Column(String(500), nullable=False)
     content_type = Column(String(100), nullable=True)

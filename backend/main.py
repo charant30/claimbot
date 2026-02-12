@@ -7,7 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
-from app.api.routes import auth, policies, claims, documents, chat, handoff, admin, websocket
+from app.api.routes import auth, policies, claims, documents, chat, handoff, admin, websocket, fnol
 
 
 @asynccontextmanager
@@ -45,6 +45,7 @@ app.include_router(chat.router, prefix="/chat", tags=["Chat"])
 app.include_router(handoff.router, prefix="/handoff", tags=["Handoff"])
 app.include_router(admin.router, prefix="/admin", tags=["Admin"])
 app.include_router(websocket.router, prefix="/ws", tags=["WebSocket"])
+app.include_router(fnol.router, prefix="/fnol", tags=["FNOL"])
 
 
 @app.get("/")

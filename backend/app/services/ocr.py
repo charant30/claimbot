@@ -47,7 +47,7 @@ async def extract_document_entities(
     if not content_type or not content_type.startswith("image/"):
         return {"status": "skipped", "reason": "unsupported_content_type"}
 
-    llm_provider = _get_setting(db, "llm_provider", "ollama")
+    llm_provider = _get_setting(db, "llm_provider", "openai")
     
     try:
         with open(file_path, "rb") as f:
@@ -61,7 +61,56 @@ async def extract_document_entities(
 
     content = ""
 
-    if llm_provider == "bedrock":
+    if llm_provider == "openai":
+        # Use OpenAI Vision API
+        openai_api_key = _get_setting(db, "openai_api_key", settings.OPENAI_API_KEY)
+        vision_model = _get_setting(db, "openai_vision_model", settings.OPENAI_VISION_MODEL)
+        
+        if not openai_api_key:
+            logger.warning("OpenAI API key not configured, falling back to Ollama for OCR")
+            llm_provider = "ollama"
+        else:
+            openai_payload = {
+                "model": vision_model,
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": f"data:{content_type};base64,{encoded}",
+                                },
+                            },
+                            {
+                                "type": "text",
+                                "text": prompt_text,
+                            }
+                        ],
+                    }
+                ],
+                "max_tokens": 4096,
+            }
+            
+            try:
+                async with httpx.AsyncClient(timeout=60.0) as client:
+                    response = await client.post(
+                        "https://api.openai.com/v1/chat/completions",
+                        json=openai_payload,
+                        headers={
+                            "Authorization": f"Bearer {openai_api_key}",
+                            "Content-Type": "application/json",
+                        },
+                    )
+                    response.raise_for_status()
+                    data = response.json()
+                    content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+                    
+            except httpx.HTTPError as exc:
+                logger.error(f"OpenAI OCR request failed: {exc}")
+                return {"status": "error", "reason": "openai_request_failed"}
+
+    if llm_provider == "bedrock" and not content:
         import boto3
         bedrock_runtime = boto3.client(
             service_name="bedrock-runtime",
@@ -107,7 +156,7 @@ async def extract_document_entities(
             logger.error(f"Bedrock OCR request failed: {exc}")
             return {"status": "error", "reason": "bedrock_request_failed"}
 
-    else:
+    if llm_provider == "ollama" and not content:
         # Fallback to Ollama
         ollama_endpoint = _get_setting(db, "ollama_endpoint", settings.OLLAMA_BASE_URL).rstrip("/")
         vision_model = _get_setting(db, "ollama_vision_model", settings.OLLAMA_VISION_MODEL)
@@ -148,3 +197,4 @@ async def extract_document_entities(
     logger.info(f"OCR extraction completed for {doc_type}: confidence={validated.get('confidence', 'N/A')}")
 
     return validated
+

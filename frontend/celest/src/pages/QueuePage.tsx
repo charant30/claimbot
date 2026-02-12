@@ -19,57 +19,31 @@ interface EscalatedCase {
 function QueuePage() {
     const [cases, setCases] = useState<EscalatedCase[]>([])
     const [loading, setLoading] = useState(true)
+    const [error, setError] = useState<string | null>(null)
+
+    const fetchQueue = async () => {
+        setLoading(true)
+        setError(null)
+        try {
+            const data = await handoffApi.getQueue()
+            setCases(Array.isArray(data) ? data : [])
+        } catch (err: any) {
+            console.error('Failed to fetch queue:', err)
+            const status = err.response?.status
+            if (status === 401) {
+                setError('Authentication expired. Please log in again.')
+            } else if (status === 403) {
+                setError('You do not have permission to view the queue.')
+            } else {
+                setError('Failed to load escalation queue. Please try again.')
+            }
+            setCases([])
+        } finally {
+            setLoading(false)
+        }
+    }
 
     useEffect(() => {
-        const fetchQueue = async () => {
-            try {
-                const data = await handoffApi.getQueue()
-                setCases(data)
-            } catch (error) {
-                console.error('Failed to fetch queue:', error)
-                // Mock data for demo
-                setCases([
-                    {
-                        case_id: 'case-001',
-                        thread_id: 'thread-001',
-                        status: 'pending',
-                        priority: 'high',
-                        reason: 'High-value claim requires review',
-                        customer_name: 'Alice Johnson',
-                        customer_email: 'alice@example.com',
-                        claim_type: 'auto',
-                        created_at: new Date(Date.now() - 300000).toISOString(),
-                        sla_deadline: new Date(Date.now() + 900000).toISOString(),
-                    },
-                    {
-                        case_id: 'case-002',
-                        thread_id: 'thread-002',
-                        status: 'pending',
-                        priority: 'medium',
-                        reason: 'User requested human agent',
-                        customer_name: 'Bob Smith',
-                        customer_email: 'bob@example.com',
-                        claim_type: 'medical',
-                        created_at: new Date(Date.now() - 600000).toISOString(),
-                        sla_deadline: new Date(Date.now() + 1200000).toISOString(),
-                    },
-                    {
-                        case_id: 'case-003',
-                        thread_id: 'thread-003',
-                        status: 'pending',
-                        priority: 'low',
-                        reason: 'Low confidence in AI response',
-                        customer_name: 'Carol Williams',
-                        customer_email: 'carol@example.com',
-                        claim_type: 'home',
-                        created_at: new Date(Date.now() - 1200000).toISOString(),
-                        sla_deadline: new Date(Date.now() + 1800000).toISOString(),
-                    },
-                ])
-            } finally {
-                setLoading(false)
-            }
-        }
         fetchQueue()
     }, [])
 
@@ -104,8 +78,26 @@ function QueuePage() {
         <div className="queue-page">
             <div className="page-header">
                 <h1>Escalation Queue</h1>
-                <span className="queue-count">{cases.length} pending</span>
+                <div className="header-actions">
+                    <span className="queue-count">{cases.length} pending</span>
+                    <button className="btn btn-secondary" onClick={fetchQueue}>
+                        Refresh
+                    </button>
+                </div>
             </div>
+
+            {error && (
+                <div className="queue-error">
+                    <span className="error-icon">⚠️</span>
+                    <div>
+                        <h3>Unable to Load Queue</h3>
+                        <p>{error}</p>
+                    </div>
+                    <button className="btn btn-primary" onClick={fetchQueue}>
+                        Retry
+                    </button>
+                </div>
+            )}
 
             {cases.length === 0 ? (
                 <div className="empty-state">

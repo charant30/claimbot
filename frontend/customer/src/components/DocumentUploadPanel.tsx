@@ -16,7 +16,7 @@ interface DocumentUploadPanelProps {
 const DOC_TYPES = [
     { value: 'incident_photos', label: 'Incident photos', required: true, description: 'Required - photos of damage' },
     { value: 'police_report', label: 'Police report', required: false, description: 'Optional - if available' },
-    { value: 'repair_estimate', label: 'Repair estimate', required: false, description: 'Optional - for repair claims' },
+    { value: 'estimate', label: 'Repair estimate', required: false, description: 'Optional - for repair claims' },
     { value: 'invoice', label: 'Invoice', required: false, description: 'Optional - if repairs complete' },
 ]
 

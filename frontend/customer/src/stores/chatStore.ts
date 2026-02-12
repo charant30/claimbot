@@ -49,7 +49,7 @@ interface ChatState {
     startSession: (policyId?: string) => Promise<void>
     sendMessage: (content: string, metadata?: Record<string, any>) => Promise<void>
     selectProduct: (product: string) => void
-    selectIntent: (intent: string) => Promise<void>
+    selectIntent: (intent: string) => Promise<{ navigateToFNOL: boolean } | void>
     submitClaimForm: (data: ClaimFormData) => Promise<void>
     uploadDocument: (docType: string, file: File) => Promise<void>
     clearChat: () => void
@@ -140,6 +140,26 @@ export const useChatStore = create<ChatState>((set, get) => ({
     selectIntent: async (intent: string) => {
         const { productLine, threadId } = get()
         const intentLabel = INTENT_OPTIONS.find(i => i.id === intent)?.label || intent
+
+        // For "file_claim" intent on auto insurance, navigate to FNOL page
+        if (intent === 'file_claim' && productLine === 'auto') {
+            // Add user's selection as a message
+            set((state) => ({
+                intent,
+                messages: [
+                    ...state.messages,
+                    {
+                        id: `user-${Date.now()}`,
+                        role: 'user',
+                        content: intentLabel,
+                        timestamp: new Date(),
+                    },
+                ],
+                isOpen: false, // Close the chat widget
+            }))
+            // Return flag to indicate navigation to FNOL
+            return { navigateToFNOL: true }
+        }
 
         // Add user's selection as a message
         set((state) => ({

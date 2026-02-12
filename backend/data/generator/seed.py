@@ -13,11 +13,12 @@ from sqlalchemy.orm import Session
 from app.db.session import SessionLocal
 from app.db.models import (
     User, AuthLevel, UserRole,
-    Policy, PolicyCoverage, ProductType, PolicyStatus,
+    Policy, PolicyCoverage, PolicyVehicle, PolicyDriver, ProductType, PolicyStatus,
     Claim, ClaimType, ClaimStatus,
     Provider, NetworkStatus,
     SystemSettings,
 )
+from app.db.models.policy import DriverRelationship
 from app.core import hash_password
 
 # Seed for reproducibility
@@ -51,6 +52,24 @@ SPECIALTIES = [
     "Family Medicine", "Internal Medicine", "Pediatrics", "Cardiology", "Orthopedics",
     "Dermatology", "Gastroenterology", "Neurology", "Oncology", "Psychiatry",
 ]
+
+# Vehicle data for auto policies
+VEHICLE_MAKES_MODELS = [
+    ("Honda", ["Accord", "Civic", "CR-V", "Pilot"]),
+    ("Toyota", ["Camry", "Corolla", "RAV4", "Highlander"]),
+    ("Ford", ["F-150", "Escape", "Explorer", "Mustang"]),
+    ("Chevrolet", ["Silverado", "Equinox", "Malibu", "Tahoe"]),
+    ("Nissan", ["Altima", "Sentra", "Rogue", "Pathfinder"]),
+    ("Hyundai", ["Elantra", "Sonata", "Tucson", "Santa Fe"]),
+    ("BMW", ["3 Series", "5 Series", "X3", "X5"]),
+    ("Mercedes", ["C-Class", "E-Class", "GLC", "GLE"]),
+]
+
+VEHICLE_COLORS = ["Black", "White", "Silver", "Gray", "Blue", "Red", "Green", "Brown"]
+
+BODY_TYPES = ["sedan", "suv", "truck", "coupe", "hatchback", "minivan"]
+
+US_STATES = ["CA", "TX", "FL", "NY", "IL", "PA", "OH", "GA", "NC", "MI"]
 
 
 def generate_users(db: Session, count: int = 50) -> List[User]:
@@ -99,20 +118,49 @@ def generate_users(db: Session, count: int = 50) -> List[User]:
     return users
 
 
+def generate_vin() -> str:
+    """Generate a realistic-looking VIN (17 characters)."""
+    # VIN format: simplified but valid-looking
+    chars = "ABCDEFGHJKLMNPRSTUVWXYZ0123456789"  # No I, O, Q
+    return "".join(random.choice(chars) for _ in range(17))
+
+
+def generate_license_plate(state: str) -> str:
+    """Generate a license plate number."""
+    letters = "".join(random.choices("ABCDEFGHIJKLMNOPQRSTUVWXYZ", k=3))
+    numbers = "".join(random.choices("0123456789", k=4))
+    return f"{letters}{numbers}"
+
+
+def generate_license_number(state: str) -> str:
+    """Generate a driver's license number."""
+    return f"{state[0]}{random.randint(100000000, 999999999)}"
+
+
 def generate_policies(db: Session, users: List[User]) -> List[Policy]:
     """Generate synthetic policies for users."""
     policies = []
     customers = [u for u in users if u.role == UserRole.CUSTOMER]
-    
+
     for user in customers:
+        # Parse user name
+        name_parts = user.name.split()
+        first_name = name_parts[0] if name_parts else "Unknown"
+        last_name = name_parts[-1] if len(name_parts) > 1 else "User"
+
         # Each user gets 1-3 policies
         num_policies = random.randint(1, 3)
         product_types = random.sample(list(ProductType), min(num_policies, 3))
-        
+
         for product_type in product_types:
             policy_number = f"{product_type.value[:3].upper()}-{random.randint(100000, 999999)}"
             effective = date.today() - timedelta(days=random.randint(30, 365))
-            
+            state = random.choice(US_STATES)
+
+            # Generate holder DOB (25-65 years old)
+            age = random.randint(25, 65)
+            holder_dob = date.today() - timedelta(days=age * 365 + random.randint(0, 364))
+
             policy = Policy(
                 policy_number=policy_number,
                 user_id=user.user_id,
@@ -120,17 +168,105 @@ def generate_policies(db: Session, users: List[User]) -> List[Policy]:
                 effective_date=effective,
                 expiration_date=effective + timedelta(days=365),
                 status=PolicyStatus.ACTIVE,
+                # Holder details for identity matching
+                holder_first_name=first_name,
+                holder_last_name=last_name,
+                holder_phone=f"555-{random.randint(100, 999)}-{random.randint(1000, 9999)}",
+                holder_email=user.email,
+                holder_dob=holder_dob,
+                holder_address=f"{random.randint(100, 9999)} Main St",
+                holder_zip=random.choice(CITIES)[2],
             )
             db.add(policy)
             db.flush()  # Get policy_id
-            
+
             # Add coverages based on product type
             if product_type == ProductType.AUTO:
                 coverages = [
                     ("collision", Decimal("50000"), Decimal("500")),
                     ("comprehensive", Decimal("50000"), Decimal("250")),
                     ("liability", Decimal("100000"), Decimal("0")),
+                    ("uninsured_motorist", Decimal("100000"), Decimal("0")),
                 ]
+
+                # Add 1-2 vehicles for auto policies
+                num_vehicles = random.randint(1, 2)
+                for _ in range(num_vehicles):
+                    make, models = random.choice(VEHICLE_MAKES_MODELS)
+                    model = random.choice(models)
+                    year = random.randint(2015, 2024)
+
+                    vehicle = PolicyVehicle(
+                        policy_id=policy.policy_id,
+                        vin=generate_vin(),
+                        year=year,
+                        make=make,
+                        model=model,
+                        body_type=random.choice(BODY_TYPES),
+                        color=random.choice(VEHICLE_COLORS),
+                        license_plate=generate_license_plate(state),
+                        license_state=state,
+                        ownership_status=random.choice(["owned", "financed", "leased"]),
+                        annual_mileage=random.randint(8000, 20000),
+                        primary_use=random.choice(["commute", "pleasure", "business"]),
+                        is_active=True,
+                    )
+                    db.add(vehicle)
+
+                # Add 1-3 drivers for auto policies
+                num_drivers = random.randint(1, 3)
+
+                # Primary driver (policyholder)
+                primary_driver = PolicyDriver(
+                    policy_id=policy.policy_id,
+                    first_name=first_name,
+                    last_name=last_name,
+                    date_of_birth=holder_dob,
+                    gender=random.choice(["male", "female"]),
+                    license_number=generate_license_number(state),
+                    license_state=state,
+                    license_status="valid",
+                    license_expiration=date.today() + timedelta(days=random.randint(365, 1825)),
+                    driver_relationship=DriverRelationship.SELF,
+                    is_primary=True,
+                    years_licensed=random.randint(5, 40),
+                    accidents_3yr=random.choices([0, 1, 2], weights=[80, 15, 5])[0],
+                    violations_3yr=random.choices([0, 1, 2], weights=[70, 20, 10])[0],
+                    is_active=True,
+                    is_excluded=False,
+                )
+                db.add(primary_driver)
+
+                # Additional drivers
+                for i in range(num_drivers - 1):
+                    add_first = random.choice(FIRST_NAMES)
+                    add_age = random.randint(18, 70)
+                    add_dob = date.today() - timedelta(days=add_age * 365 + random.randint(0, 364))
+
+                    add_driver = PolicyDriver(
+                        policy_id=policy.policy_id,
+                        first_name=add_first,
+                        last_name=last_name,  # Same last name (family member)
+                        date_of_birth=add_dob,
+                        gender=random.choice(["male", "female"]),
+                        license_number=generate_license_number(state),
+                        license_state=state,
+                        license_status="valid",
+                        license_expiration=date.today() + timedelta(days=random.randint(365, 1825)),
+                        driver_relationship=random.choice([
+                            DriverRelationship.SPOUSE,
+                            DriverRelationship.CHILD,
+                            DriverRelationship.OTHER_RELATIVE,
+                        ]),
+                        is_primary=False,
+                        years_licensed=max(0, add_age - 16),
+                        accidents_3yr=random.choices([0, 1], weights=[85, 15])[0],
+                        violations_3yr=random.choices([0, 1, 2], weights=[75, 20, 5])[0],
+                        is_active=True,
+                        is_excluded=False,
+                    )
+                    db.add(add_driver)
+
             elif product_type == ProductType.HOME:
                 coverages = [
                     ("dwelling", Decimal("300000"), Decimal("1000")),
@@ -143,7 +279,7 @@ def generate_policies(db: Session, users: List[User]) -> List[Policy]:
                     ("physician", Decimal("500000"), Decimal("2500"), Decimal("40"), Decimal("20")),
                     ("prescription", Decimal("50000"), Decimal("0"), Decimal("15"), Decimal("0")),
                 ]
-            
+
             for cov in coverages:
                 if len(cov) == 3:
                     coverage = PolicyCoverage(
@@ -162,9 +298,9 @@ def generate_policies(db: Session, users: List[User]) -> List[Policy]:
                         coinsurance_pct=cov[4],
                     )
                 db.add(coverage)
-            
+
             policies.append(policy)
-    
+
     db.commit()
     return policies
 
@@ -269,11 +405,17 @@ def generate_providers(db: Session, count: int = 20) -> List[Provider]:
 def seed_default_settings(db: Session) -> None:
     """Seed default system settings."""
     defaults = [
-        ("llm_provider", "ollama", "Active LLM provider"),
+        ("llm_provider", "openai", "Active LLM provider"),
+        # OpenAI settings
+        ("openai_model", "gpt-4o-mini", "OpenAI model name"),
+        ("openai_vision_model", "gpt-4o-mini", "OpenAI vision model name"),
+        # Ollama settings
         ("ollama_model", "llama3", "Ollama model name"),
         ("ollama_vision_model", "llava", "Ollama vision model name"),
         ("ollama_endpoint", "http://localhost:11434", "Ollama endpoint URL"),
+        # Bedrock settings
         ("bedrock_model", "anthropic.claude-3-sonnet-20240229-v1:0", "Bedrock model ID"),
+        # Thresholds
         ("confidence_threshold", 0.7, "AI confidence threshold for escalation"),
         ("auto_approval_limit", 5000.0, "Maximum amount for auto-approval"),
     ]

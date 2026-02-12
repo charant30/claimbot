@@ -200,9 +200,16 @@ def calculate_incident_payout(state: ConversationState) -> ConversationState:
 
 def summarize_incident_claim(state: ConversationState) -> ConversationState:
     """Summarize the claim for customer."""
+    from app.orchestration.utils import parse_monetary_value
+    
     collected = state.get("collected_fields", {})
     calc_result = state.get("calculation_result", {})
     flow_settings = state.get("flow_settings") or {}
+
+    # Safely convert estimated_damage to a number
+    claimed_amount = float(parse_monetary_value(
+        collected.get('estimated_damage', collected.get('loss_amount', 0))
+    ))
 
     # Check if high value claim needs escalation
     payout_amount = calc_result.get("payout_amount", 0)
@@ -218,7 +225,7 @@ def summarize_incident_claim(state: ConversationState) -> ConversationState:
 • Description: {collected.get('incident_description', collected.get('description', 'N/A'))}
 
 **Estimated Payout:**
-• Claimed Amount: ${collected.get('estimated_damage', collected.get('loss_amount', 0)):,.2f}
+• Claimed Amount: ${claimed_amount:,.2f}
 • Deductible: ${calc_result.get('deductible_applied', 0):,.2f}
 • Estimated Payout: ${payout_amount:,.2f}
 
@@ -232,7 +239,7 @@ Due to the claim value, I'm connecting you with a claims specialist who can assi
 • Description: {collected.get('incident_description', collected.get('description', 'N/A'))}
 
 **Estimated Payout:**
-• Claimed Amount: ${collected.get('estimated_damage', collected.get('loss_amount', 0)):,.2f}
+• Claimed Amount: ${claimed_amount:,.2f}
 • Deductible: ${calc_result.get('deductible_applied', 0):,.2f}
 • Estimated Payout: ${payout_amount:,.2f}
 

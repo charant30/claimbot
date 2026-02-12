@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts'
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
 import { adminApi } from '../services/api'
 import './DashboardPage.css'
 
@@ -28,23 +28,73 @@ const STATUS_COLORS: Record<string, string> = {
 function DashboardPage() {
     const [metrics, setMetrics] = useState<Metrics | null>(null)
     const [loading, setLoading] = useState(true)
+    const [error, setError] = useState<string | null>(null)
+
+    const fetchMetrics = async () => {
+        setLoading(true)
+        setError(null)
+        try {
+            const data = await adminApi.getMetrics()
+            setMetrics(data)
+        } catch (err: any) {
+            console.error('Failed to fetch metrics:', err)
+            const status = err.response?.status
+            if (status === 401) {
+                setError('Authentication expired. Please log in again.')
+            } else if (status === 403) {
+                setError('You do not have permission to view the dashboard.')
+            } else {
+                setError('Failed to load dashboard metrics. Please try again.')
+            }
+        } finally {
+            setLoading(false)
+        }
+    }
 
     useEffect(() => {
-        const fetchMetrics = async () => {
-            try {
-                const data = await adminApi.getMetrics()
-                setMetrics(data)
-            } catch (error) {
-                console.error('Failed to fetch metrics:', error)
-            } finally {
-                setLoading(false)
-            }
-        }
         fetchMetrics()
     }, [])
 
     if (loading) {
         return <div className="loading">Loading dashboard...</div>
+    }
+
+    if (error) {
+        return (
+            <div className="dashboard-page">
+                <div className="page-header">
+                    <h1>Dashboard</h1>
+                    <p>System overview and key metrics</p>
+                </div>
+                <div className="dashboard-error">
+                    <span className="error-icon">⚠️</span>
+                    <h3>Unable to Load Dashboard</h3>
+                    <p>{error}</p>
+                    <button className="btn btn-primary" onClick={fetchMetrics}>
+                        Retry
+                    </button>
+                </div>
+            </div>
+        )
+    }
+
+    if (!metrics) {
+        return (
+            <div className="dashboard-page">
+                <div className="page-header">
+                    <h1>Dashboard</h1>
+                    <p>System overview and key metrics</p>
+                </div>
+                <div className="dashboard-error">
+                    <span className="error-icon">📊</span>
+                    <h3>No Data Available</h3>
+                    <p>Dashboard metrics are not available yet.</p>
+                    <button className="btn btn-primary" onClick={fetchMetrics}>
+                        Refresh
+                    </button>
+                </div>
+            </div>
+        )
     }
 
     const claimsStatusData = metrics ?
