@@ -25,11 +25,18 @@ function LiveChatPage() {
     useEffect(() => {
         const fetchMessages = async () => {
             try {
-                const data = await handoffApi.getMessages(caseId!)
-                setMessages(data)
+                const data: any[] = await handoffApi.getMessages(caseId!)
+                const mappedMessages: Message[] = data.map((msg, index) => ({
+                    id: msg.message_id || `msg-${index}-${Date.now()}`,
+                    role: msg.role as 'user' | 'agent' | 'ai',
+                    content: msg.content,
+                    sender_name: msg.role === 'user' ? 'Customer' : msg.role === 'agent' ? 'Agent' : 'ClaimBot AI',
+                    timestamp: msg.created_at || new Date().toISOString()
+                }))
+                setMessages(mappedMessages)
             } catch (error) {
                 console.error('Failed to fetch messages:', error)
-                // Mock data
+                // Mock data fallback
                 setMessages([
                     {
                         id: '1',

@@ -528,9 +528,16 @@ async def get_case_messages(
     """Get case messages for agent view."""
     case = _get_case_or_404(db, case_id)
     session_store = get_session_store()
-    session = session_store.get(case.chat_thread_id)
+    
+    # Try FNOL session first, then standard chat session
+    fnol_key = f"fnol:{case.chat_thread_id}"
+    session = session_store.get(fnol_key)
+    if not session:
+        session = session_store.get(case.chat_thread_id)
+        
     if not session:
         return []
+
     return [
         CaseMessageResponse(
             role=msg.get("role", "assistant"),
@@ -555,10 +562,22 @@ async def send_case_message(
     _ensure_lock(case, user_id)
 
     session_store = get_session_store()
-    session = session_store.get(case.chat_thread_id) or {
-        "thread_id": case.chat_thread_id,
-        "messages": [],
-    }
+    
+    # Try FNOL session first, then standard chat session
+    fnol_key = f"fnol:{case.chat_thread_id}"
+    session = session_store.get(fnol_key)
+    final_key = fnol_key
+    
+    if not session:
+        final_key = case.chat_thread_id
+        session = session_store.get(final_key)
+        
+    if not session:
+        # Create new standard session if none exists
+        session = {
+            "thread_id": case.chat_thread_id,
+            "messages": [],
+        }
 
     message = {
         "message_id": str(uuid_lib.uuid4()),
@@ -568,7 +587,7 @@ async def send_case_message(
         "created_at": datetime.utcnow().isoformat(),
     }
     session["messages"].append(message)
-    session_store.set(case.chat_thread_id, session, ttl_hours=24)
+    session_store.set(final_key, session, ttl_hours=24)
 
     audit = CaseAudit(
         case_id=case.case_id,

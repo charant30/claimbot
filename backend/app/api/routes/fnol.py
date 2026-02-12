@@ -97,7 +97,17 @@ class DocumentUploadResponse(BaseModel):
     evidence_id: str
     evidence_type: str
     upload_status: str
+    evidence_type: str
+    upload_status: str
     extracted_data: Dict[str, Any] = {}
+
+
+class FNOLHistoryMessage(BaseModel):
+    """Message in FNOL conversation history."""
+    role: str
+    content: str
+    timestamp: str
+    message_id: Optional[str] = None
 
 
 # ============================================================================
@@ -578,3 +588,47 @@ async def resume_fnol_session(
         },
         ui_hints=ui_hints,
     )
+
+
+@router.get("/session/{thread_id}/messages", response_model=List[FNOLHistoryMessage])
+async def get_fnol_messages(
+    thread_id: str,
+    user_id: Optional[str] = Depends(get_optional_user_id),
+):
+    """
+    Get the message history for an FNOL session.
+    
+    Used for polling to see new agent messages.
+    """
+    session_store = get_session_store()
+    session_key = _get_session_key(thread_id)
+    state = session_store.get(session_key)
+
+    if not state:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Session not found or expired",
+        )
+
+    if user_id and state.get("user_id") and state["user_id"] != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized for this session",
+        )
+
+    messages = state.get("messages", [])
+    
+    # Ensure all messages have IDs
+    history = []
+    for msg in messages:
+        if not msg.get("message_id"):
+            msg["message_id"] = str(uuid_lib.uuid4())
+        
+        history.append(FNOLHistoryMessage(
+            role=msg["role"],
+            content=msg["content"],
+            timestamp=msg.get("timestamp", datetime.utcnow().isoformat()),
+            message_id=msg["message_id"]
+        ))
+        
+    return history

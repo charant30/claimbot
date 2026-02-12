@@ -11,7 +11,7 @@ from app.orchestration import (
     ConversationState,
     get_required_fields,
 )
-from app.db.models import SystemSettings
+from app.db.models import SystemSettings, Case, CaseStatus
 from app.core.logging import logger
 from app.services.session_store import get_session_store
 
@@ -152,6 +152,43 @@ class ChatService:
         # Apply admin flow settings and any frontend metadata
         state["flow_settings"] = self._get_flow_settings()
         state = self._apply_metadata(state, metadata)
+
+        # Check for active case (ESCALATED or AGENT_HANDLING)
+        active_case = (
+            self.db.query(Case)
+            .filter(
+                Case.chat_thread_id == thread_id,
+                Case.status.in_([CaseStatus.ESCALATED, CaseStatus.AGENT_HANDLING])
+            )
+            .first()
+        )
+        
+        if active_case:
+            logger.info(f"Thread {thread_id} has active case {active_case.case_id} ({active_case.status}) - skipping AI")
+            
+            # Append user message to history so agent sees it
+            current_messages = state.get("messages", [])
+            new_msg = {
+                "role": "user",
+                "content": message,
+                "created_at": datetime.utcnow().isoformat(),
+                "metadata": {"actor_id": user_id}
+            }
+            current_messages.append(new_msg)
+            state["messages"] = current_messages
+            
+            # Save updated state
+            session_store = get_session_store()
+            state_key = f"{STATE_KEY_PREFIX}{thread_id}"
+            session_store.set(state_key, state, ttl_hours=24)
+            
+            return {
+                "thread_id": thread_id,
+                "response": "A specialist will be with you shortly." if active_case.status == CaseStatus.ESCALATED else "",
+                "intent": "human_request",
+                "should_escalate": True,
+                "claim_id": str(active_case.claim_id) if active_case.claim_id else None,
+            }
 
         # Update state with current input
         state["current_input"] = message

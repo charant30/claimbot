@@ -183,6 +183,13 @@ export interface FNOLSummaryResponse {
     validation_errors: string[]
 }
 
+export interface FNOLHistoryMessage {
+    role: string
+    content: string
+    timestamp: string
+    message_id: string
+}
+
 export const fnolApi = {
     createSession: async (policyId?: string): Promise<FNOLSessionResponse> => {
         const response = await api.post('/fnol/session', {
@@ -231,6 +238,11 @@ export const fnolApi = {
 
     resumeSession: async (threadId: string): Promise<FNOLSessionResponse> => {
         const response = await api.post(`/fnol/session/${threadId}/resume`)
+        return response.data
+    },
+
+    getMessages: async (threadId: string): Promise<FNOLHistoryMessage[]> => {
+        const response = await api.get(`/fnol/session/${threadId}/messages`)
         return response.data
     },
 }

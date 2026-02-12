@@ -11,6 +11,14 @@ export default defineConfig({
                 changeOrigin: true,
                 rewrite: (path) => path.replace(/^\/api/, ''),
             },
+            '/handoff': {
+                target: 'http://localhost:8000',
+                changeOrigin: true,
+            },
+            '/auth': {
+                target: 'http://localhost:8000',
+                changeOrigin: true,
+            },
         },
     },
 })

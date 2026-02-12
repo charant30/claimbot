@@ -32,39 +32,51 @@ function CaseDetailPage() {
     useEffect(() => {
         const fetchCase = async () => {
             try {
-                const data = await handoffApi.getCase(caseId!)
-                setCaseData(data)
+                // Fetch case details and messages in parallel
+                const [caseRes, messagesRes] = await Promise.all([
+                    handoffApi.getCase(caseId!),
+                    handoffApi.getMessages(caseId!)
+                ])
+
+                const packet = caseRes.case_packet || {}
+                const collected = packet.collected_fields || {}
+                const calculation = packet.calculation_result || null
+
+                // Map to CaseDetail interface
+                const mappedData: CaseDetail = {
+                    case_id: caseRes.case_id,
+                    thread_id: caseRes.thread_id,
+                    status: caseRes.status,
+                    priority: String(caseRes.priority), // Convert int to string
+                    reason: packet.escalation_reason || packet.reason || 'Manual Escalation',
+                    customer_name: packet.first_name ? `${packet.first_name} ${packet.last_name || ''}` : 'Unknown Customer',
+                    customer_email: packet.email || 'No Email',
+                    claim_type: packet.incident_type || 'General',
+                    policy_number: packet.policy_number || collected.policy_number || 'N/A',
+                    collected_fields: collected,
+                    calculation_result: calculation,
+                    messages: Array.isArray(messagesRes) ? messagesRes : [],
+                    created_at: caseRes.created_at
+                }
+
+                setCaseData(mappedData)
             } catch (error) {
                 console.error('Failed to fetch case:', error)
-                // Mock data
+                // Fallback to mock data if fetch fails
                 setCaseData({
                     case_id: caseId!,
                     thread_id: 'thread-001',
                     status: 'pending',
                     priority: 'high',
-                    reason: 'High-value claim requires review',
-                    customer_name: 'Alice Johnson',
-                    customer_email: 'alice@example.com',
+                    reason: 'Error loading case details',
+                    customer_name: 'Unknown',
+                    customer_email: 'unknown@example.com',
                     claim_type: 'auto',
-                    policy_number: 'AUT-2024-001234',
-                    collected_fields: {
-                        incident_date: '2024-01-15',
-                        incident_location: '123 Main St, New York, NY',
-                        incident_description: 'Rear-ended at traffic light. Damage to rear bumper and trunk.',
-                        estimated_damage: 8500,
-                        police_report_number: 'PR-2024-5678',
-                    },
-                    calculation_result: {
-                        payout_amount: 8000,
-                        deductible_applied: 500,
-                        is_total_loss: false,
-                    },
-                    messages: [
-                        { role: 'user', content: "I need to file a claim for a car accident." },
-                        { role: 'assistant', content: "I'm sorry to hear about your accident. I'll help you file a claim. Can you tell me when and where the incident occurred?" },
-                        { role: 'user', content: "It happened yesterday at 123 Main St. I was rear-ended at a traffic light." },
-                    ],
-                    created_at: new Date(Date.now() - 300000).toISOString(),
+                    policy_number: 'N/A',
+                    collected_fields: {},
+                    calculation_result: null,
+                    messages: [],
+                    created_at: new Date().toISOString(),
                 })
             } finally {
                 setLoading(false)

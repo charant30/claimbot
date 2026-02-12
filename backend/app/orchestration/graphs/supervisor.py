@@ -19,7 +19,7 @@ from app.services.document_verification import (
 )
 from app.core.logging import logger
 from app.db.session import SessionLocal
-from app.orchestration.tools.claim_tools import get_claim_by_number
+from app.orchestration.tools.claim_tools import lookup_claim_by_number
 import re
 
 
@@ -406,11 +406,19 @@ def agent_status(state: ConversationState) -> ConversationState:
         }
 
     # Fetch claim details
-    db = SessionLocal()
     try:
-        result = get_claim_by_number(claim_number, db)
-    finally:
-        db.close()
+        db = SessionLocal()
+        try:
+            result = lookup_claim_by_number(claim_number, db)
+        finally:
+            db.close()
+    except Exception as e:
+        logger.error(f"Error in agent_status: {e}")
+        return {
+            **state,
+            "claim_details": {"error": "Internal error retrieving claim status"},
+            "next_step": "generate_response",
+        }
         
     state = _append_agent_trace(state, "agent_status", {"found": "error" not in result})
     

@@ -82,6 +82,9 @@ class FNOLStateMachine:
         # Update state with new input
         state["current_input"] = message
         state["updated_at"] = datetime.utcnow().isoformat()
+        
+        # Clear previous AI response to prevent loops
+        state["ai_response"] = None
 
         # Add message to history
         state["messages"] = state.get("messages", []) + [{

@@ -25,8 +25,25 @@ function QueuePage() {
         setLoading(true)
         setError(null)
         try {
-            const data = await handoffApi.getQueue()
-            setCases(Array.isArray(data) ? data : [])
+            const data: any[] = await handoffApi.getQueue() // Type as any[] to allow mapping
+            // Map backend fields to frontend interface
+            const mappedCases: EscalatedCase[] = data.map((item) => ({
+                case_id: item.case_id,
+                thread_id: item.thread_id,
+                status: item.status,
+                // Map integer priority to string or keep as string if backend changes
+                priority: item.priority <= 2 ? 'high' : item.priority <= 4 ? 'medium' : 'low',
+                // Extract details from case_packet
+                reason: item.case_packet?.escalation_reason || item.case_packet?.reason || 'Manual Escalation',
+                customer_name: item.case_packet?.first_name ? `${item.case_packet.first_name} ${item.case_packet.last_name || ''}` : 'Unknown Customer',
+                customer_email: item.case_packet?.email || 'No Email',
+                claim_type: item.case_packet?.incident_type || 'General',
+                created_at: item.created_at,
+                // Map sla_due_at to sla_deadline
+                sla_deadline: item.sla_due_at,
+            }))
+
+            setCases(mappedCases)
         } catch (err: any) {
             console.error('Failed to fetch queue:', err)
             const status = err.response?.status

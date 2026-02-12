@@ -87,6 +87,7 @@ interface FNOLState {
     sendMessage: (message: string) => Promise<void>
     uploadDocument: (file: File, evidenceType?: string) => Promise<void>
     resumeSession: (threadId: string) => Promise<void>
+    refreshMessages: () => Promise<void>
     loadSummary: () => Promise<void>
     resetSession: () => void
     setCurrentMessage: (message: string) => void
@@ -213,6 +214,28 @@ export const useFNOLStore = create<FNOLState>()(
                         error: error.response?.data?.detail || 'Session expired. Please start a new claim.',
                         isLoading: false,
                     })
+                }
+            },
+
+            refreshMessages: async () => {
+                const { threadId } = get()
+                if (!threadId) return
+
+                try {
+                    const history = await fnolApi.getMessages(threadId)
+                    const messages: Message[] = history.map(h => ({
+                        id: h.message_id || `msg-${Date.now()}-${Math.random()}`,
+                        role: h.role as 'user' | 'assistant',
+                        content: h.content,
+                        timestamp: h.timestamp
+                    }))
+
+                    // Filter out empty messages (silenced bot)
+                    const validMessages = messages.filter(m => m.content && m.content.trim() !== "")
+
+                    set({ messages: validMessages })
+                } catch (error) {
+                    console.error('Failed to refresh messages', error)
                 }
             },
 

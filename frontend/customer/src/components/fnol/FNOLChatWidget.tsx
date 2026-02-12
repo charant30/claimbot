@@ -118,6 +118,7 @@ export const FNOLChatWidget: React.FC<FNOLChatWidgetProps> = ({
         toggleSummary,
         clearError,
         resetSession,
+        refreshMessages,
     } = useFNOLStore()
 
     const [showCancelConfirm, setShowCancelConfirm] = React.useState(false)
@@ -155,6 +156,19 @@ export const FNOLChatWidget: React.FC<FNOLChatWidgetProps> = ({
             loadSummary()
         }
     }, [currentState, summary, loadSummary])
+
+    // Poll for new messages every 3 seconds
+    useEffect(() => {
+        let interval: ReturnType<typeof setInterval>
+        if (isSessionActive && !isComplete) {
+            interval = setInterval(() => {
+                refreshMessages()
+            }, 1000)
+        }
+        return () => {
+            if (interval) clearInterval(interval)
+        }
+    }, [isSessionActive, isComplete, refreshMessages])
 
     const handleSubmit = async (message: string) => {
         // Check if it's a photo upload

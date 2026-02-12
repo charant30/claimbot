@@ -104,15 +104,6 @@ async def send_message(
             detail="Not authorized for this session",
         )
 
-    # Store user message
-    user_msg = {
-        "message_id": str(uuid_lib.uuid4()),
-        "role": "user",
-        "content": request.message,
-        "metadata": request.metadata,
-    }
-    session["messages"].append(user_msg)
-
     # Process through LangGraph
     from app.services.chat import get_chat_service
     chat_service = get_chat_service(db)
@@ -125,11 +116,12 @@ async def send_message(
         metadata=request.metadata,
     )
 
-    assistant_msg = {
-        "message_id": str(uuid_lib.uuid4()),
-        "role": "assistant",
-        "content": result.get("response", "I couldn't process that."),
-        "metadata": {
+    return ChatMessageResponse(
+        message_id=str(uuid_lib.uuid4()),
+        thread_id=request.thread_id,
+        role="assistant",
+        content=result.get("response", "I couldn't process that."),
+        metadata={
             "intent": result.get("intent"),
             "product_line": result.get("product_line"),
             "should_escalate": result.get("should_escalate", False),
@@ -137,20 +129,6 @@ async def send_message(
             "claim_id": result.get("claim_id") or request.metadata.get("claim_id"),
             "claim_number": request.metadata.get("claim_number"),
         },
-    }
-    session["messages"].append(assistant_msg)
-
-    # Update session in store
-    session_store.set(request.thread_id, session, ttl_hours=24)
-
-    logger.info(f"Chat message in thread {request.thread_id}")
-
-    return ChatMessageResponse(
-        message_id=assistant_msg["message_id"],
-        thread_id=request.thread_id,
-        role="assistant",
-        content=assistant_msg["content"],
-        metadata=assistant_msg["metadata"],
     )
 
 

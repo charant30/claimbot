@@ -73,17 +73,9 @@ def get_claim_status(claim_id: str, db: Session) -> dict:
     }
 
 
-@tool
-def get_claim_by_number(claim_number: str, db: Session) -> dict:
+def lookup_claim_by_number(claim_number: str, db: Session) -> dict:
     """
-    Get claim details by claim number.
-    
-    Args:
-        claim_number: The claim number (e.g. INC-1234)
-        db: Database session
-        
-    Returns:
-        Claim details or error
+    Get claim details by claim number (internal function).
     """
     try:
         claim = db.query(Claim).filter(Claim.claim_number == claim_number).first()
@@ -102,6 +94,21 @@ def get_claim_by_number(claim_number: str, db: Session) -> dict:
         }
     except Exception as e:
         return {"error": f"Error retrieving claim: {str(e)}"}
+
+
+@tool
+def get_claim_by_number(claim_number: str, db: Session) -> dict:
+    """
+    Get claim details by claim number.
+    
+    Args:
+        claim_number: The claim number (e.g. INC-1234)
+        db: Database session
+        
+    Returns:
+        Claim details or error
+    """
+    return lookup_claim_by_number(claim_number, db)
 
 
 
