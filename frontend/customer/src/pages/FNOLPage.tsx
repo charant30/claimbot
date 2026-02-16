@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { FNOLChatWidget } from '../components/fnol'
 import { useAuthStore } from '../stores/authStore'
@@ -7,7 +7,7 @@ import { useFNOLStore } from '../stores/fnolStore'
 export const FNOLPage: React.FC = () => {
     const navigate = useNavigate()
     const { user } = useAuthStore()
-    const { resetSession } = useFNOLStore()
+    const { resetSession, sendMessage } = useFNOLStore()
     const [showConfirmation, setShowConfirmation] = useState(false)
     const [completedClaimId, setCompletedClaimId] = useState<string | null>(null)
     const [showEscalation, setShowEscalation] = useState(false)
@@ -17,6 +17,13 @@ export const FNOLPage: React.FC = () => {
         setCompletedClaimId(claimDraftId)
         setShowConfirmation(true)
     }
+
+    // After submit, auto-redirect to dashboard after 10 seconds
+    useEffect(() => {
+        if (!showConfirmation || !completedClaimId) return
+        const t = setTimeout(() => navigate('/dashboard'), 10000)
+        return () => clearTimeout(t)
+    }, [showConfirmation, completedClaimId, navigate])
 
     const handleEscalation = (reason: string) => {
         setEscalationReason(reason)
@@ -33,12 +40,21 @@ export const FNOLPage: React.FC = () => {
         setCompletedClaimId(null)
     }
 
-    const handleReturnHome = () => {
-        navigate('/')
+    const handleBackToDashboard = () => {
+        navigate('/dashboard')
+    }
+
+    const handleConnectToSpecialist = async () => {
+        setShowConfirmation(false)
+        try {
+            await sendMessage('Connect me to a specialist')
+        } catch (e) {
+            console.error('Failed to request specialist:', e)
+        }
     }
 
     const handleCancel = () => {
-        navigate('/')
+        navigate('/dashboard')
     }
 
     // Confirmation screen after successful claim submission
@@ -62,14 +78,17 @@ export const FNOLPage: React.FC = () => {
                             You'll receive updates via email and can track the status in your dashboard.
                         </p>
                         <div className="confirmation-actions">
-                            <button className="btn-primary" onClick={handleViewClaims}>
+                            <button className="btn-primary" onClick={handleBackToDashboard}>
+                                Back to Dashboard
+                            </button>
+                            <button className="btn-secondary" onClick={handleViewClaims}>
                                 View My Claims
                             </button>
-                            <button className="btn-secondary" onClick={handleFileAnother}>
-                                File Another Claim
+                            <button className="btn-secondary" onClick={handleConnectToSpecialist}>
+                                Connect to Specialist
                             </button>
-                            <button className="btn-tertiary" onClick={handleReturnHome}>
-                                Return Home
+                            <button className="btn-tertiary" onClick={handleFileAnother}>
+                                File Another Claim
                             </button>
                         </div>
                     </div>
@@ -101,8 +120,8 @@ export const FNOLPage: React.FC = () => {
                         <p className="contact-info">
                             If you prefer, you can also call us directly at <strong>1-800-CLAIMS</strong>
                         </p>
-                        <button className="btn-secondary" onClick={handleReturnHome}>
-                            Return Home
+                        <button className="btn-secondary" onClick={handleBackToDashboard}>
+                            Back to Dashboard
                         </button>
                     </div>
                 </div>

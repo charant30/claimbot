@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from app.db import get_db
 from app.db.models import Policy
 from app.core import get_current_user_id, logger
-from app.services.session_store import get_session_store
+from app.services.session_store import get_session_store, deduplicate_messages
 
 router = APIRouter()
 
@@ -139,26 +139,36 @@ async def get_session_messages(
 ):
     """Get all messages in a chat session."""
     session_store = get_session_store()
-    session = session_store.get(thread_id)
+    
+    # Try all known session key patterns
+    session = None
+    for key in [f"conversation_state:{thread_id}", f"fnol:{thread_id}", thread_id]:
+        session = session_store.get(key)
+        if session and session.get("messages"):
+            break
+    
     if not session:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Session not found",
         )
 
-    if session["user_id"] != user_id:
+    # Allow access if user_id matches (or skip check if no user_id in session)
+    session_user_id = session.get("user_id")
+    if session_user_id and session_user_id != user_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized for this session",
         )
 
+    messages = deduplicate_messages(session.get("messages", []))
     return [
         ChatMessageResponse(
-            message_id=msg["message_id"],
+            message_id=msg.get("message_id", f"msg-{i}"),
             thread_id=thread_id,
-            role=msg["role"],
-            content=msg["content"],
+            role=msg.get("role", "assistant"),
+            content=msg.get("content", ""),
             metadata=msg.get("metadata", {}),
         )
-        for msg in session["messages"]
+        for i, msg in enumerate(messages)
     ]

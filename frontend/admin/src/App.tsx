@@ -6,7 +6,6 @@ import DashboardPage from './pages/DashboardPage'
 import LLMSettingsPage from './pages/LLMSettingsPage'
 import FlowsPage from './pages/FlowsPage'
 import TranscriptsPage from './pages/TranscriptsPage'
-import AuditLogsPage from './pages/AuditLogsPage'
 import './App.css'
 
 function ProtectedLayout({ children }: { children: React.ReactNode }) {
@@ -40,6 +39,11 @@ function App() {
                         <DashboardPage />
                     </ProtectedLayout>
                 } />
+                <Route path="/transcripts" element={
+                    <ProtectedLayout>
+                        <TranscriptsPage />
+                    </ProtectedLayout>
+                } />
                 <Route path="/llm-settings" element={
                     <ProtectedLayout>
                         <LLMSettingsPage />
@@ -48,16 +52,6 @@ function App() {
                 <Route path="/flows" element={
                     <ProtectedLayout>
                         <FlowsPage />
-                    </ProtectedLayout>
-                } />
-                <Route path="/transcripts" element={
-                    <ProtectedLayout>
-                        <TranscriptsPage />
-                    </ProtectedLayout>
-                } />
-                <Route path="/audit-logs" element={
-                    <ProtectedLayout>
-                        <AuditLogsPage />
                     </ProtectedLayout>
                 } />
             </Routes>

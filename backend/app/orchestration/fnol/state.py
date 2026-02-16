@@ -367,6 +367,9 @@ def calculate_progress(completed_states: List[str], current_state: str) -> int:
     if current_state == "HANDOFF_ESCALATION":
         # Escalation is a terminal state but not completion
         return int((len(completed_states) / total_states) * 100)
+    # Submission complete: show 100%
+    if current_state == "NEXT_STEPS":
+        return 100
 
     try:
         current_index = STATE_ORDER.index(current_state)

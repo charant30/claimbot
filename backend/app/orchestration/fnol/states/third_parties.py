@@ -27,8 +27,13 @@ def third_parties_node(state: FNOLConversationState) -> FNOLConversationState:
 
     # Check if this scenario needs third party info
     if step == "initial":
-        # Single vehicle accidents don't need third party
-        if loss_subtype in ["single_vehicle", "weather_hail", "weather_flood", "theft_vehicle", "vandalism", "glass_only"]:
+        loss_type = incident.get("loss_type", "")
+        # Theft: no other driver; single vehicle / weather / vandalism / glass don't need third party
+        if loss_type == "theft" or loss_subtype in [
+            "single_vehicle", "weather_hail", "weather_flood",
+            "theft_vehicle", "theft_attempted", "vehicle_stolen", "attempted_theft",
+            "vandalism", "glass_only",
+        ]:
             state["state_step"] = "skipped"
             state = transition_state(state, "INJURIES", "initial")
             return state

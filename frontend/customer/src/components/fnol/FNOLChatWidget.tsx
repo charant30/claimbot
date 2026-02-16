@@ -102,6 +102,8 @@ export const FNOLChatWidget: React.FC<FNOLChatWidgetProps> = ({
 }) => {
     const {
         isSessionActive,
+        threadId,
+        sessionEndedAt,
         messages,
         currentState,
         isLoading,
@@ -118,23 +120,59 @@ export const FNOLChatWidget: React.FC<FNOLChatWidgetProps> = ({
         toggleSummary,
         clearError,
         resetSession,
+        endSession,
+        resumeSession,
         refreshMessages,
     } = useFNOLStore()
 
     const [showCancelConfirm, setShowCancelConfirm] = React.useState(false)
+    const [showInactivityBanner, setShowInactivityBanner] = React.useState(false)
+    const inactivityTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
 
     const messagesEndRef = useRef<HTMLDivElement>(null)
+    const isInitialScrollDoneRef = useRef(false)
+    const lastThreadIdRef = useRef<string | null>(null)
 
-    // Auto-scroll to bottom when new messages arrive
+    // Reset scroll-on-load when starting a new session
     useEffect(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-    }, [messages])
-
-    // Start session on mount if not active
-    useEffect(() => {
-        if (!isSessionActive) {
-            startSession(policyId)
+        if (threadId !== lastThreadIdRef.current) {
+            lastThreadIdRef.current = threadId
+            isInitialScrollDoneRef.current = false
         }
+    }, [threadId])
+
+    // Scroll to bottom only on initial load (once messages exist), not on every refresh/poll
+    useEffect(() => {
+        if (isInitialScrollDoneRef.current || !messages.length) return
+        isInitialScrollDoneRef.current = true
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    }, [messages.length])
+
+    // Session lifecycle: create new on first open; resume if returning (e.g. refresh) and session not ended
+    useEffect(() => {
+        if (isSessionActive) return
+
+        const run = async () => {
+            if (threadId && sessionEndedAt != null) {
+                // User had ended this session earlier → start fresh
+                await startSession(policyId)
+                return
+            }
+            if (threadId) {
+                try {
+                    await resumeSession(threadId)
+                    return
+                } catch (e: any) {
+                    if (e?.response?.status === 410) {
+                        await startSession(policyId)
+                        return
+                    }
+                    throw e
+                }
+            }
+            await startSession(policyId)
+        }
+        run()
     }, [])
 
     // Handle completion and escalation callbacks
@@ -158,25 +196,35 @@ export const FNOLChatWidget: React.FC<FNOLChatWidgetProps> = ({
     }, [currentState, summary, loadSummary])
 
     // Poll for new messages every 3 seconds
+    // Keep polling during escalation so customer can see agent messages
     useEffect(() => {
         let interval: ReturnType<typeof setInterval>
-        if (isSessionActive && !isComplete) {
+        const shouldPoll = isSessionActive && (!isComplete || shouldEscalate)
+        if (shouldPoll) {
             interval = setInterval(() => {
                 refreshMessages()
-            }, 1000)
+            }, isComplete ? 3000 : 1000)
         }
         return () => {
             if (interval) clearInterval(interval)
         }
-    }, [isSessionActive, isComplete, refreshMessages])
+    }, [isSessionActive, isComplete, shouldEscalate, refreshMessages])
+
+    // Inactivity: 15 min with no user message → show banner. Reset timer on each user message.
+    useEffect(() => {
+        if (!isSessionActive || isComplete) return
+        if (inactivityTimerRef.current) clearTimeout(inactivityTimerRef.current)
+        inactivityTimerRef.current = setTimeout(() => setShowInactivityBanner(true), 15 * 60 * 1000)
+        return () => {
+            if (inactivityTimerRef.current) clearTimeout(inactivityTimerRef.current)
+        }
+    }, [isSessionActive, isComplete, messages.length])
 
     const handleSubmit = async (message: string) => {
-        // Check if it's a photo upload
-        if (message.startsWith('[Photo:')) {
-            // This is handled separately via file input
-            return
-        }
+        if (message.startsWith('[Photo:')) return
+        setShowInactivityBanner(false)
         await sendMessage(message)
+        requestAnimationFrame(() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }))
     }
 
     const handleSummaryConfirm = async () => {
@@ -193,22 +241,41 @@ export const FNOLChatWidget: React.FC<FNOLChatWidgetProps> = ({
         setShowCancelConfirm(true)
     }
 
-    const handleConfirmCancel = () => {
-        resetSession()
+    const handleConfirmCancel = async () => {
         setShowCancelConfirm(false)
-        if (onCancel) {
-            onCancel()
-        }
+        await endSession()
+        if (onCancel) onCancel()
+    }
+
+    const handleInactivityEndSession = async () => {
+        setShowInactivityBanner(false)
+        await endSession()
+        if (onCancel) onCancel()
     }
 
     return (
         <div className="fnol-chat-widget" role="main" aria-label="Auto claim filing assistant">
+            {/* Inactivity banner */}
+            {showInactivityBanner && isSessionActive && !isComplete && (
+                <div className="fnol-inactivity-banner" role="alert">
+                    <p>You've been inactive for a while. End this session?</p>
+                    <div className="fnol-inactivity-actions">
+                        <button type="button" className="fnol-inactivity-btn secondary" onClick={() => setShowInactivityBanner(false)}>
+                            Keep going
+                        </button>
+                        <button type="button" className="fnol-inactivity-btn primary" onClick={handleInactivityEndSession}>
+                            End session
+                        </button>
+                    </div>
+                </div>
+            )}
+
             {/* Cancel Confirmation Modal */}
             {showCancelConfirm && (
                 <div className="cancel-modal-overlay">
                     <div className="cancel-modal" role="dialog" aria-modal="true">
-                        <h3>Cancel Claim?</h3>
-                        <p>Are you sure you want to cancel? Your progress will be lost.</p>
+                        <h3>End session?</h3>
+                        <p>This will end your current session. Your progress will be saved but you'll need to start a new claim to continue.</p>
                         <div className="cancel-modal-actions">
                             <button
                                 className="cancel-modal-btn secondary"
@@ -231,7 +298,9 @@ export const FNOLChatWidget: React.FC<FNOLChatWidgetProps> = ({
             <header className="fnol-header">
                 <div className="header-content">
                     <h1>File an Auto Claim</h1>
-                    <span className="current-state" aria-live="polite">{STATE_LABELS[currentState]}</span>
+                    {currentState !== 'NEXT_STEPS' && (
+                        <span className="current-state" aria-live="polite">{STATE_LABELS[currentState]}</span>
+                    )}
                 </div>
                 <button
                     className="fnol-cancel-btn"
@@ -323,23 +392,62 @@ export const FNOLChatWidget: React.FC<FNOLChatWidgetProps> = ({
                 <div ref={messagesEndRef} />
             </div>
 
-            {/* Input Area */}
+            {/* Input Area - show during active FNOL flow OR during escalation for chatting with agent */}
             {!isComplete && !shouldEscalate && (
                 <FNOLDynamicInput onSubmit={handleSubmit} isLoading={isLoading} />
             )}
-
-            {/* Completion Banner */}
-            {isComplete && (
-                <div className="completion-banner" role="status" aria-live="polite">
-                    <div className="completion-icon" aria-hidden="true">
-                        <svg viewBox="0 0 24 24" fill="currentColor">
-                            <path fillRule="evenodd" d="M2.25 12c0-5.385 4.365-9.75 9.75-9.75s9.75 4.365 9.75 9.75-4.365 9.75-9.75 9.75S2.25 17.385 2.25 12zm13.36-1.814a.75.75 0 10-1.22-.872l-3.236 4.53L9.53 12.22a.75.75 0 00-1.06 1.06l2.25 2.25a.75.75 0 001.14-.094l3.75-5.25z" clipRule="evenodd" />
-                        </svg>
-                    </div>
-                    <h2>Claim Submitted Successfully</h2>
-                    <p>Your claim reference is: <strong>{claimDraftId?.slice(0, 8).toUpperCase()}</strong></p>
-                </div>
+            {shouldEscalate && (
+                <form
+                    className="escalation-chat-input"
+                    onSubmit={(e) => {
+                        e.preventDefault()
+                        const input = (e.target as HTMLFormElement).querySelector('input') as HTMLInputElement
+                        if (input.value.trim()) {
+                            handleSubmit(input.value.trim())
+                            input.value = ''
+                        }
+                    }}
+                    style={{
+                        display: 'flex',
+                        gap: '8px',
+                        padding: '12px 16px',
+                        borderTop: '1px solid #e5e7eb',
+                        background: '#fff',
+                    }}
+                >
+                    <input
+                        type="text"
+                        placeholder="Type a message to the specialist..."
+                        disabled={isLoading}
+                        style={{
+                            flex: 1,
+                            padding: '10px 14px',
+                            border: '1px solid #d1d5db',
+                            borderRadius: '8px',
+                            fontSize: '14px',
+                            outline: 'none',
+                        }}
+                    />
+                    <button
+                        type="submit"
+                        disabled={isLoading}
+                        style={{
+                            padding: '10px 18px',
+                            background: '#2563eb',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '8px',
+                            cursor: 'pointer',
+                            fontSize: '14px',
+                            fontWeight: 500,
+                        }}
+                    >
+                        Send
+                    </button>
+                </form>
             )}
+
+            {/* Completion: no in-widget banner; parent shows confirmation and redirects to dashboard */}
 
             {/* Escalation Banner */}
             {shouldEscalate && (
@@ -437,6 +545,43 @@ export const FNOLChatWidget: React.FC<FNOLChatWidgetProps> = ({
                     align-items: center;
                     justify-content: center;
                     z-index: 100;
+                }
+
+                .fnol-inactivity-banner {
+                    padding: 12px 16px;
+                    background: #fef3c7;
+                    border-bottom: 1px solid #f59e0b;
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                    flex-wrap: wrap;
+                    gap: 8px;
+                }
+                .fnol-inactivity-banner p {
+                    margin: 0;
+                    font-size: 14px;
+                    color: #92400e;
+                }
+                .fnol-inactivity-actions {
+                    display: flex;
+                    gap: 8px;
+                }
+                .fnol-inactivity-btn {
+                    padding: 6px 14px;
+                    border-radius: 8px;
+                    font-size: 13px;
+                    font-weight: 500;
+                    cursor: pointer;
+                    border: none;
+                }
+                .fnol-inactivity-btn.secondary {
+                    background: #fff;
+                    color: #92400e;
+                    border: 1px solid #f59e0b;
+                }
+                .fnol-inactivity-btn.primary {
+                    background: #d97706;
+                    color: white;
                 }
 
                 .cancel-modal {

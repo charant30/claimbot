@@ -153,6 +153,16 @@ export const adminApi = {
         return response.data
     },
 
+    // Sessions
+    getSessions: async (limit = 100, includeCompleted = true) => {
+        const params = new URLSearchParams({ 
+            limit: String(limit),
+            include_completed: String(includeCompleted)
+        })
+        const response = await api.get(`/admin/sessions?${params}`)
+        return response.data
+    },
+
     // Transcripts
     getTranscripts: async (limit = 50) => {
         const response = await api.get(`/admin/transcripts?limit=${limit}`)

@@ -15,8 +15,6 @@ from app.db.base import Base
 
 class ProductType(str, PyEnum):
     AUTO = "auto"
-    HOME = "home"
-    MEDICAL = "medical"
 
 
 class PolicyStatus(str, PyEnum):
@@ -58,6 +56,13 @@ class Policy(Base):
     holder_address = Column(String(500))
     holder_zip = Column(String(10))
 
+    # Billing information
+    premium_monthly = Column(Numeric(10, 2), nullable=True)
+    premium_annual = Column(Numeric(10, 2), nullable=True)
+    payment_method = Column(String(50), nullable=True)  # credit_card, bank_account, etc.
+    next_payment_date = Column(Date, nullable=True)
+    payment_status = Column(String(20), nullable=True, default="current")  # current, past_due, grace_period
+
     # Relationships
     user = relationship("User", back_populates="policies")
     coverages = relationship("PolicyCoverage", back_populates="policy", cascade="all, delete-orphan")
@@ -95,8 +100,8 @@ class PolicyCoverage(Base):
     coverage_type = Column(String(100), nullable=False)  # e.g., "collision", "liability", "hospital"
     limit_amount = Column(Numeric(12, 2), nullable=False)
     deductible = Column(Numeric(12, 2), default=0)
-    copay = Column(Numeric(12, 2), default=0)  # Medical only
-    coinsurance_pct = Column(Numeric(5, 2), default=0)  # Medical only (e.g., 20.00 for 20%)
+    copay = Column(Numeric(12, 2), default=0)
+    coinsurance_pct = Column(Numeric(5, 2), default=0)  # e.g., 20.00 for 20%
     exclusions = Column(JSON, default=list)  # List of exclusion strings
 
     # For auto: daily limits (rental reimbursement)

@@ -14,9 +14,22 @@ interface CaseDetail {
     claim_type: string
     policy_number: string
     collected_fields: Record<string, any>
+    intent?: string
+    product_line?: string
     calculation_result: Record<string, any> | null
     messages: Array<{ role: string; content: string }>
     created_at: string
+}
+
+function formatIntent(intent: string): string {
+    const labels: Record<string, string> = {
+        billing_inquiry: 'Billing inquiry',
+        coverage_question: 'Coverage question',
+        check_status: 'Claim status',
+        human_request: 'Speak to agent',
+        general_inquiry: 'General inquiry',
+    }
+    return labels[intent] || intent.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
 }
 
 function CaseDetailPage() {
@@ -47,13 +60,15 @@ function CaseDetailPage() {
                     case_id: caseRes.case_id,
                     thread_id: caseRes.thread_id,
                     status: caseRes.status,
-                    priority: String(caseRes.priority), // Convert int to string
+                    priority: String(caseRes.priority),
                     reason: packet.escalation_reason || packet.reason || 'Manual Escalation',
                     customer_name: packet.first_name ? `${packet.first_name} ${packet.last_name || ''}` : 'Unknown Customer',
                     customer_email: packet.email || 'No Email',
                     claim_type: packet.incident_type || 'General',
                     policy_number: packet.policy_number || collected.policy_number || 'N/A',
                     collected_fields: collected,
+                    intent: packet.intent,
+                    product_line: packet.product_line,
                     calculation_result: calculation,
                     messages: Array.isArray(messagesRes) ? messagesRes : [],
                     created_at: caseRes.created_at
@@ -74,6 +89,8 @@ function CaseDetailPage() {
                     claim_type: 'auto',
                     policy_number: 'N/A',
                     collected_fields: {},
+                    intent: undefined,
+                    product_line: undefined,
                     calculation_result: null,
                     messages: [],
                     created_at: new Date().toISOString(),
@@ -156,15 +173,48 @@ function CaseDetailPage() {
                     </section>
 
                     <section className="info-section">
-                        <h2>Extracted Data</h2>
-                        <div className="extracted-fields">
-                            {Object.entries(caseData.collected_fields).map(([key, value]) => (
-                                <div key={key} className="field-item">
-                                    <span className="field-label">{key.replace(/_/g, ' ')}</span>
-                                    <span className="field-value">{String(value)}</span>
+                        {Object.keys(caseData.collected_fields).length > 0 ? (
+                            <>
+                                <h2>Extracted Data</h2>
+                                <p className="section-desc">Claim form data collected during intake (FNOL).</p>
+                                <div className="extracted-fields">
+                                    {Object.entries(caseData.collected_fields).map(([key, value]) => (
+                                        <div key={key} className="field-item">
+                                            <span className="field-label">{key.replace(/_/g, ' ')}</span>
+                                            <span className="field-value">{String(value)}</span>
+                                        </div>
+                                    ))}
                                 </div>
-                            ))}
-                        </div>
+                            </>
+                        ) : (
+                            <>
+                                <h2>Case Context</h2>
+                                <p className="section-desc">Summary for chat or inquiry escalations.</p>
+                                <div className="info-grid">
+                                    {caseData.intent && (
+                                        <div className="info-item">
+                                            <span className="label">Intent</span>
+                                            <span className="value">{formatIntent(caseData.intent)}</span>
+                                        </div>
+                                    )}
+                                    {caseData.product_line && (
+                                        <div className="info-item">
+                                            <span className="label">Product</span>
+                                            <span className="value">{String(caseData.product_line).charAt(0).toUpperCase() + String(caseData.product_line).slice(1)}</span>
+                                        </div>
+                                    )}
+                                    <div className="info-item">
+                                        <span className="label">Reason</span>
+                                        <span className="value">{caseData.reason}</span>
+                                    </div>
+                                    {!caseData.intent && !caseData.product_line && (
+                                        <div className="info-item">
+                                            <span className="value muted">No additional context (see transcript).</span>
+                                        </div>
+                                    )}
+                                </div>
+                            </>
+                        )}
                     </section>
 
                     {caseData.calculation_result && (

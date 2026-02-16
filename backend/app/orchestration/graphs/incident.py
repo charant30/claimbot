@@ -1,5 +1,5 @@
 """
-Incident Subgraph - Handles Auto and Home claims
+Incident Subgraph - Handles Auto claims
 """
 from typing import Optional
 from langgraph.graph import StateGraph, END
@@ -158,11 +158,6 @@ def calculate_incident_payout(state: ConversationState) -> ConversationState:
         validator = get_policy_validation_service(db)
         incident_type = collected.get("incident_type", "collision")
         coverage = validator.get_coverage_for_claim(policy, incident_type)
-        if not coverage and product_line == "home":
-            coverage = (
-                validator.get_coverage_for_claim(policy, "dwelling")
-                or validator.get_coverage_for_claim(policy, "property")
-            )
         coverage = coverage or validator.get_primary_coverage(policy)
         if not coverage:
             return {

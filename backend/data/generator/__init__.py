@@ -1,6 +1,6 @@
 """
 Data generator package
 """
-from data.generator.seed import run_seed
+from data.generator.fresh_start import fresh_start
 
-__all__ = ["run_seed"]
+__all__ = ["fresh_start"]

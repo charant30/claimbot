@@ -194,6 +194,12 @@
     border: 1px solid var(--border-color);
 }
 
+.message.agent {
+    align-self: flex-start;
+    background: rgba(0, 255, 123, 0.4);
+    border: 1px solid #a7f3d0;
+}
+
 .message-role {
     font-size: 0.65rem;
     font-weight: 600;

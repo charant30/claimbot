@@ -40,7 +40,7 @@ interface TranscriptDetail {
     policy_id?: string
     messages: Array<{
         message_id?: string
-        role: 'user' | 'assistant'
+        role: 'user' | 'assistant' | 'agent'
         content: string
         metadata?: Record<string, any>
     }>
@@ -56,34 +56,34 @@ function TranscriptsPage() {
     const [detailError, setDetailError] = useState<string | null>(null)
     const [autoRefresh, setAutoRefresh] = useState(true)
 
-    const fetchTranscripts = useCallback(async () => {
+    const fetchTranscripts = useCallback(async (isBackgroundRefresh = false) => {
+        if (!isBackgroundRefresh) setLoading(true)
         try {
             const data = await adminApi.getTranscripts(50)
-            setTranscripts(data || [])
+            const next = data || []
+            setTranscripts((prev) => {
+                if (isBackgroundRefresh && prev.length === next.length) {
+                    const same = next.every((t: Transcript, i: number) => prev[i]?.thread_id === t.thread_id && prev[i]?.message_count === t.message_count)
+                    if (same) return prev
+                }
+                return next
+            })
         } catch (error) {
             console.error('Failed to fetch transcripts:', error)
-            setTranscripts([])
+            if (!isBackgroundRefresh) setTranscripts([])
         } finally {
             setLoading(false)
         }
     }, [])
 
-    // Initial fetch and auto-refresh
     useEffect(() => {
-        fetchTranscripts()
-
-        // Auto-refresh every 5 seconds if enabled
+        fetchTranscripts(false)
         let interval: ReturnType<typeof setInterval> | null = null
-        if (autoRefresh) {
-            interval = setInterval(fetchTranscripts, 5000)
-        }
-
-        return () => {
-            if (interval) clearInterval(interval)
-        }
+        if (autoRefresh) interval = setInterval(() => fetchTranscripts(true), 5000)
+        return () => { if (interval) clearInterval(interval) }
     }, [fetchTranscripts, autoRefresh])
 
-    // Fetch transcript detail when selected
+    // Fetch transcript detail when selected; background refresh does not show loading or reset scroll
     useEffect(() => {
         if (!selectedTranscript) {
             setTranscriptDetail(null)
@@ -93,21 +93,32 @@ function TranscriptsPage() {
 
         let isCancelled = false
 
-        const fetchDetail = async () => {
-            setLoadingDetail(true)
-            setDetailError(null)
+        const fetchDetail = async (isBackgroundRefresh = false) => {
+            if (!isBackgroundRefresh) {
+                setLoadingDetail(true)
+                setDetailError(null)
+            }
             try {
                 const detail = await adminApi.getTranscriptDetail(selectedTranscript)
                 if (!isCancelled) {
-                    setTranscriptDetail(detail)
+                    setTranscriptDetail((prev) => {
+                        if (isBackgroundRefresh && prev?.messages && detail?.messages) {
+                            const nextMsgs = detail.messages
+                            if (nextMsgs.length === prev.messages.length) {
+                                const same = nextMsgs.every((m: { role: string; content: string }, i: number) =>
+                                    prev.messages[i]?.role === m.role && prev.messages[i]?.content === m.content)
+                                if (same) return prev
+                            }
+                        }
+                        return detail
+                    })
                     setDetailError(null)
                 }
             } catch (error: any) {
                 console.error('Failed to fetch transcript detail:', error)
-                if (!isCancelled) {
+                if (!isCancelled && !isBackgroundRefresh) {
                     const status = error.response?.status
                     if (status === 404) {
-                        // Session expired from memory — clear selection
                         setDetailError('This session has expired and is no longer available.')
                         setTranscriptDetail(null)
                     } else {
@@ -116,25 +127,24 @@ function TranscriptsPage() {
                     }
                 }
             } finally {
-                if (!isCancelled) {
+                if (!isCancelled && !isBackgroundRefresh) {
                     setLoadingDetail(false)
                 }
             }
         }
 
-        fetchDetail()
+        fetchDetail(false)
 
-        // Auto-refresh detail only if no error
         let interval: ReturnType<typeof setInterval> | null = null
-        if (autoRefresh && !detailError) {
-            interval = setInterval(fetchDetail, 3000)
+        if (autoRefresh) {
+            interval = setInterval(() => fetchDetail(true), 3000)
         }
 
         return () => {
             isCancelled = true
             if (interval) clearInterval(interval)
         }
-    }, [selectedTranscript, autoRefresh, detailError])
+    }, [selectedTranscript, autoRefresh])
 
     const formatTime = (dateStr: string) => {
         if (!dateStr) return 'Unknown'
@@ -240,7 +250,9 @@ function TranscriptsPage() {
                                 ) : (
                                     transcriptDetail.messages.map((msg, idx) => (
                                         <div key={msg.message_id || idx} className={`message ${msg.role}`}>
-                                            <div className="message-role">{msg.role === 'user' ? 'Customer' : 'ClaimBot'}</div>
+                                            <div className="message-role">
+                                                {msg.role === 'user' ? 'Customer' : msg.role === 'agent' ? 'Specialist' : 'ClaimBot'}
+                                            </div>
                                             <div className="message-content">
                                                 {msg.content.split('\n').map((line, i) => (
                                                     <p key={i} style={{ margin: 0, minHeight: '1em' }} dangerouslySetInnerHTML={{ __html: renderMarkdownLine(line) }} />

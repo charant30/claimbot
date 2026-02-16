@@ -3,8 +3,8 @@ VEHICLE_DRIVER State Handler
 
 Collects information about the insured vehicle and driver:
 1. Select vehicle from policy or enter manually
-2. Confirm driver details
-3. Capture drivable status and current location
+2. Confirm driver details (only when relevant to claim type)
+3. Capture drivable status and current location (only when relevant)
 """
 from typing import Optional
 import uuid
@@ -16,6 +16,27 @@ from app.orchestration.fnol.states.base import (
     set_response,
     format_vehicle_display,
 )
+
+
+def _is_vehicle_theft(state: FNOLConversationState) -> bool:
+    """True if claim is theft — drivable and driver questions are not relevant (vehicle missing or not applicable)."""
+    incident = state.get("incident", {})
+    return incident.get("loss_type") == "theft"
+
+
+def _is_driver_question_relevant(state: FNOLConversationState) -> bool:
+    """True if 'Were you driving?' is relevant — only for collision/fire, not theft/vandalism/weather/glass."""
+    incident = state.get("incident", {})
+    loss_type = incident.get("loss_type")
+    if not loss_type:
+        return True  # default: ask
+    # Relevant when someone was likely driving at time of incident
+    if loss_type in ("collision", "fire"):
+        return True
+    # Not relevant: theft (stolen), vandalism (usually parked), weather (usually parked), glass (often parked)
+    if loss_type in ("theft", "vandalism", "weather", "glass"):
+        return False
+    return True  # other: ask
 
 
 def vehicle_driver_node(state: FNOLConversationState) -> FNOLConversationState:
@@ -112,6 +133,15 @@ def vehicle_driver_node(state: FNOLConversationState) -> FNOLConversationState:
                     data_after=format_vehicle_display(selected),
                 )
 
+                # Theft: vehicle is missing — skip drivable and driver questions
+                if _is_vehicle_theft(state):
+                    vehicles = state.get("vehicles", [])
+                    if vehicles:
+                        vehicles[0]["drivable"] = "n/a"
+                    state["state_step"] = "complete"
+                    state = transition_state(state, "THIRD_PARTIES", "initial")
+                    return state
+
                 state["state_step"] = "awaiting_drivable"
                 return set_response(
                     state,
@@ -204,6 +234,15 @@ def vehicle_driver_node(state: FNOLConversationState) -> FNOLConversationState:
         )
         state["vehicles"] = [vehicle]
 
+        # Theft: vehicle is missing — skip drivable and driver questions
+        if _is_vehicle_theft(state):
+            vehicles = state.get("vehicles", [])
+            if vehicles:
+                vehicles[0]["drivable"] = "n/a"
+            state["state_step"] = "complete"
+            state = transition_state(state, "THIRD_PARTIES", "initial")
+            return state
+
         state["state_step"] = "awaiting_drivable"
         return set_response(
             state,
@@ -241,7 +280,12 @@ def vehicle_driver_node(state: FNOLConversationState) -> FNOLConversationState:
                     input_type="text",
                 )
 
-        # Skip to driver confirmation
+        # Only ask "Were you driving?" when relevant to the claim (e.g. collision, fire)
+        if not _is_driver_question_relevant(state):
+            state["state_step"] = "complete"
+            state = transition_state(state, "THIRD_PARTIES", "initial")
+            return state
+
         state["state_step"] = "awaiting_driver_confirm"
         return _ask_driver_confirmation(state)
 
@@ -252,6 +296,11 @@ def vehicle_driver_node(state: FNOLConversationState) -> FNOLConversationState:
             vehicles[0]["current_location"] = user_input
             vehicles[0]["tow_needed"] = True
             state["vehicles"] = vehicles
+
+        if not _is_driver_question_relevant(state):
+            state["state_step"] = "complete"
+            state = transition_state(state, "THIRD_PARTIES", "initial")
+            return state
 
         state["state_step"] = "awaiting_driver_confirm"
         return _ask_driver_confirmation(state)

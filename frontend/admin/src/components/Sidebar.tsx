@@ -4,10 +4,9 @@ import './Sidebar.css'
 
 const navItems = [
     { path: '/', label: 'Dashboard', icon: '📊' },
+    { path: '/transcripts', label: 'Transcripts', icon: '📝' },
     { path: '/llm-settings', label: 'LLM Settings', icon: '🤖' },
     { path: '/flows', label: 'Flows & Intents', icon: '🔀' },
-    { path: '/transcripts', label: 'Transcripts', icon: '💬' },
-    { path: '/audit-logs', label: 'Audit Logs', icon: '📋' },
 ]
 
 function Sidebar() {

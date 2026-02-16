@@ -38,9 +38,15 @@ def damage_evidence_node(state: FNOLConversationState) -> FNOLConversationState:
     step = state.get("state_step", "initial")
     user_input = state.get("current_input", "").strip()
     vehicles = state.get("vehicles", [])
+    incident = state.get("incident", {})
+    loss_type = incident.get("loss_type", "")
 
-    # Step 1: Initial - Ask about damage areas
+    # Step 1: Initial - Ask about damage areas (skip detailed damage for theft; vehicle is missing)
     if step == "initial":
+        if loss_type == "theft":
+            state["state_step"] = "request_photos"
+            return _request_photos(state)
+
         # Find insured vehicle
         insured_vehicle = None
         for v in vehicles:

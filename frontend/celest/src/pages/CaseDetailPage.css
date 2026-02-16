@@ -51,7 +51,18 @@
     color: var(--text-muted);
     text-transform: uppercase;
     letter-spacing: 0.5px;
-    margin-bottom: var(--space-md);
+    margin-bottom: var(--space-sm);
+}
+
+.info-section .section-desc {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    margin: 0 0 var(--space-md) 0;
+}
+
+.info-item .value.muted {
+    font-weight: normal;
+    color: var(--text-muted);
 }
 
 .info-grid {

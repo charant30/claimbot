@@ -17,8 +17,6 @@ class ClaimIntent(str, Enum):
 
 class ProductLine(str, Enum):
     AUTO = "auto"
-    HOME = "home"
-    MEDICAL = "medical"
 
 
 class ConversationState(TypedDict):
@@ -66,6 +64,9 @@ class ConversationState(TypedDict):
     pending_document_review: bool        # True when new documents need processing
     document_discrepancies: List[dict]   # Cross-document issues found
 
+    # Inquiry context (user's policies, claims, billing data for inquiry agent)
+    inquiry_context: Optional[dict]
+
     # Control
     next_step: str
     is_complete: bool
@@ -103,6 +104,7 @@ def create_initial_state(
         verified_documents={},
         pending_document_review=False,
         document_discrepancies=[],
+        inquiry_context=None,
         next_step="classify_intent",
         is_complete=False,
     )
@@ -116,19 +118,9 @@ REQUIRED_FIELDS = {
             "incident_type", "estimated_damage", "vehicle_info",
             "other_party_info", "police_report_number",
         ],
-        "home": [
-            "incident_date", "incident_type", "incident_location",
-            "incident_description", "affected_areas", "estimated_damage",
-        ],
-        "medical": [
-            "service_date", "provider_name", "provider_npi",
-            "diagnosis_codes", "procedure_codes", "billed_amount",
-        ],
     },
     "check_status": {
         "auto": ["claim_number"],
-        "home": ["claim_number"],
-        "medical": ["claim_number"],
     },
 }
 

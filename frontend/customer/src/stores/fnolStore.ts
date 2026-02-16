@@ -48,11 +48,16 @@ export interface InputOption {
     label: string
 }
 
+/** Inactivity timeout before prompting to end session (ms) */
+const INACTIVITY_TIMEOUT_MS = 15 * 60 * 1000 // 15 minutes
+
 interface FNOLState {
     // Session
     threadId: string | null
     claimDraftId: string | null
     isSessionActive: boolean
+    /** When the user explicitly ended the session (so we don't resume on next open) */
+    sessionEndedAt: number | null
 
     // State machine
     currentState: FNOLStateName
@@ -87,9 +92,12 @@ interface FNOLState {
     sendMessage: (message: string) => Promise<void>
     uploadDocument: (file: File, evidenceType?: string) => Promise<void>
     resumeSession: (threadId: string) => Promise<void>
+    endSession: () => Promise<void>
     refreshMessages: () => Promise<void>
     loadSummary: () => Promise<void>
     resetSession: () => void
+    /** Call when user is active (e.g. sent message) to reset inactivity timer */
+    touchActivity: () => void
     setCurrentMessage: (message: string) => void
     toggleSummary: () => void
     clearError: () => void
@@ -99,6 +107,7 @@ const initialState = {
     threadId: null,
     claimDraftId: null,
     isSessionActive: false,
+    sessionEndedAt: null as number | null,
     currentState: 'SAFETY_CHECK' as FNOLStateName,
     completedStates: [] as FNOLStateName[],
     progressPercent: 0,
@@ -123,7 +132,7 @@ export const useFNOLStore = create<FNOLState>()(
             ...initialState,
 
             startSession: async (policyId?: string) => {
-                set({ isLoading: true, error: null })
+                set({ isLoading: true, error: null, sessionEndedAt: null })
                 try {
                     const response = await fnolApi.createSession(policyId)
                     handleSessionResponse(set, response)
@@ -137,7 +146,7 @@ export const useFNOLStore = create<FNOLState>()(
             },
 
             sendMessage: async (message: string) => {
-                const { threadId, messages } = get()
+                const { threadId, messages, shouldEscalate } = get()
                 if (!threadId) {
                     set({ error: 'No active session' })
                     return
@@ -158,6 +167,20 @@ export const useFNOLStore = create<FNOLState>()(
                     error: null,
                     validationErrors: [],
                 })
+
+                // During escalation, bypass state machine and send directly
+                if (shouldEscalate) {
+                    try {
+                        await fnolApi.sendEscalationMessage(threadId, message)
+                        set({ isLoading: false })
+                    } catch (error: any) {
+                        set({
+                            error: error.response?.data?.detail || 'Failed to send message',
+                            isLoading: false,
+                        })
+                    }
+                    return
+                }
 
                 try {
                     const response = await fnolApi.sendMessage(threadId, message)
@@ -208,13 +231,32 @@ export const useFNOLStore = create<FNOLState>()(
                     const response = await fnolApi.resumeSession(threadId)
                     handleSessionResponse(set, response)
                 } catch (error: any) {
-                    // Session might have expired
+                    // Session ended or expired
                     set({
                         ...initialState,
+                        sessionEndedAt: null,
                         error: error.response?.data?.detail || 'Session expired. Please start a new claim.',
                         isLoading: false,
                     })
+                    throw error
                 }
+            },
+
+            endSession: async () => {
+                const { threadId } = get()
+                if (!threadId) {
+                    set({ ...initialState, sessionEndedAt: Date.now() })
+                    return
+                }
+                try {
+                    await fnolApi.endSession(threadId)
+                } finally {
+                    set({ ...initialState, sessionEndedAt: Date.now() })
+                }
+            },
+
+            touchActivity: () => {
+                set({}) // no-op; inactivity timer is reset in the widget via effect
             },
 
             refreshMessages: async () => {
@@ -223,17 +265,28 @@ export const useFNOLStore = create<FNOLState>()(
 
                 try {
                     const history = await fnolApi.getMessages(threadId)
-                    const messages: Message[] = history.map(h => ({
-                        id: h.message_id || `msg-${Date.now()}-${Math.random()}`,
-                        role: h.role as 'user' | 'assistant',
-                        content: h.content,
+                    const messages: Message[] = history.map((h, i) => ({
+                        id: h.message_id || `msg-${i}-${h.timestamp || ''}`,
+                        role: (h.role === 'agent' ? 'assistant' : h.role) as 'user' | 'assistant',
+                        content: h.role === 'agent'
+                            ? `**Claims Specialist:** ${h.content}`
+                            : h.content,
                         timestamp: h.timestamp
                     }))
 
-                    // Filter out empty messages (silenced bot)
                     const validMessages = messages.filter(m => m.content && m.content.trim() !== "")
 
-                    set({ messages: validMessages })
+                    set((state) => {
+                        const prev = state.messages
+                        if (prev.length > 0 && validMessages.length >= prev.length) {
+                            const sameLength = validMessages.length === prev.length
+                            const sameContent = sameLength && validMessages.every((m, i) =>
+                                prev[i]?.id === m.id && prev[i]?.content === m.content
+                            )
+                            if (sameContent) return state
+                        }
+                        return { ...state, messages: validMessages }
+                    })
                 } catch (error) {
                     console.error('Failed to refresh messages', error)
                 }
@@ -276,7 +329,8 @@ export const useFNOLStore = create<FNOLState>()(
                 completedStates: state.completedStates,
                 progressPercent: state.progressPercent,
                 isSessionActive: state.isSessionActive,
-                messages: state.messages.slice(-100), // Keep last 100 messages for full FNOL conversation
+                sessionEndedAt: state.sessionEndedAt,
+                messages: state.messages.slice(-100),
             }),
         }
     )

@@ -74,92 +74,140 @@ export const FNOLProgressBar: React.FC = () => {
 
             <style>{`
                 .fnol-progress-bar {
-                    padding: 16px;
-                    background: #f8fafc;
-                    border-bottom: 1px solid #e2e8f0;
+                    padding: 16px 20px;
+                    background: #ffffff;
+                    border-bottom: 1px solid #e5e7eb;
                 }
 
                 .progress-header {
                     display: flex;
                     justify-content: space-between;
                     align-items: center;
-                    margin-bottom: 8px;
+                    margin-bottom: 10px;
                 }
 
                 .progress-title {
-                    font-size: 14px;
+                    font-size: 15px;
                     font-weight: 600;
-                    color: #334155;
+                    color: #1f2937;
                 }
 
                 .progress-percent {
-                    font-size: 14px;
-                    font-weight: 500;
+                    font-size: 16px;
+                    font-weight: 600;
                     color: #0066cc;
+                    background: #eff6ff;
+                    padding: 4px 10px;
+                    border-radius: 12px;
                 }
 
                 .progress-track {
-                    height: 6px;
-                    background: #e2e8f0;
-                    border-radius: 3px;
+                    height: 8px;
+                    background: #e5e7eb;
+                    border-radius: 4px;
                     overflow: hidden;
                     margin-bottom: 16px;
                 }
 
                 .progress-fill {
                     height: 100%;
-                    background: linear-gradient(90deg, #0066cc, #0099ff);
-                    border-radius: 3px;
+                    background: #0066cc;
+                    border-radius: 4px;
                     transition: width 0.3s ease;
                 }
 
                 .progress-steps {
                     display: flex;
+                    gap: 4px;
                     overflow-x: auto;
                     padding-bottom: 4px;
+                    background: transparent;
+                }
+
+                .progress-steps::-webkit-scrollbar {
+                    height: 4px;
+                }
+
+                .progress-steps::-webkit-scrollbar-track {
+                    background: #f3f4f6;
+                }
+
+                .progress-steps::-webkit-scrollbar-thumb {
+                    background: #d1d5db;
+                    border-radius: 2px;
                 }
 
                 .fnol-progress-step {
                     display: flex;
+                    flex-direction: column;
                     align-items: center;
                     flex-shrink: 0;
+                    min-width: 70px;
+                    padding: 0;
+                    margin: 0;
+                    background: transparent !important;
+                    border: none !important;
+                    outline: none !important;
+                    box-shadow: none !important;
+                }
+
+                .fnol-progress-step::before,
+                .fnol-progress-step::after {
+                    display: none !important;
                 }
 
                 .step-indicator {
-                    width: 24px;
-                    height: 24px;
+                    width: 32px;
+                    height: 32px;
+                    min-width: 32px;
+                    min-height: 32px;
+                    max-width: 32px;
+                    max-height: 32px;
                     border-radius: 50%;
                     display: flex;
                     align-items: center;
                     justify-content: center;
-                    background: #e2e8f0;
-                    color: #64748b;
-                    font-size: 12px;
+                    background: #e5e7eb !important;
+                    color: #6b7280;
+                    font-size: 13px;
                     font-weight: 600;
                     flex-shrink: 0;
+                    transition: all 0.2s ease;
+                    margin: 0 0 6px 0;
+                    padding: 0;
+                    border: none !important;
+                    outline: none !important;
+                    box-shadow: none !important;
+                    box-sizing: border-box;
+                }
+
+                .step-indicator::before,
+                .step-indicator::after {
+                    display: none !important;
                 }
 
                 .step-indicator.completed {
-                    background: #22c55e;
+                    background: #22c55e !important;
                     color: white;
                 }
 
                 .step-indicator.current {
-                    background: #0066cc;
+                    background: #0066cc !important;
                     color: white;
-                    box-shadow: 0 0 0 3px rgba(0, 102, 204, 0.2);
                 }
 
                 .check-icon {
-                    width: 14px;
-                    height: 14px;
+                    width: 16px;
+                    height: 16px;
                 }
 
                 .step-label {
-                    margin-left: 6px;
                     font-size: 11px;
-                    color: #64748b;
-                    white-space: nowrap;
+                    font-weight: 500;
+                    color: #6b7280;
+                    text-align: center;
+                    line-height: 1.2;
+                    max-width: 70px;
                 }
 
                 .step-label.current {
@@ -168,20 +216,44 @@ export const FNOLProgressBar: React.FC = () => {
                 }
 
                 .step-connector {
-                    width: 20px;
-                    height: 2px;
-                    background: #e2e8f0;
-                    margin: 0 4px;
-                    flex-shrink: 0;
-                }
-
-                .step-connector.completed {
-                    background: #22c55e;
+                    display: none;
                 }
 
                 @media (max-width: 768px) {
-                    .progress-steps {
-                        display: none;
+                    .fnol-progress-bar {
+                        padding: 12px 16px;
+                    }
+
+                    .progress-title {
+                        font-size: 14px;
+                    }
+
+                    .progress-percent {
+                        font-size: 14px;
+                        padding: 3px 8px;
+                    }
+
+                    .progress-track {
+                        height: 6px;
+                    }
+
+                    .fnol-progress-step {
+                        min-width: 60px;
+                        padding: 3px;
+                        background: none;
+                        border: none;
+                    }
+
+                    .step-indicator {
+                        width: 28px;
+                        height: 28px;
+                        font-size: 12px;
+                        margin-bottom: 5px;
+                    }
+
+                    .step-label {
+                        font-size: 10px;
+                        max-width: 60px;
                     }
                 }
             `}</style>

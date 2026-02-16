@@ -50,8 +50,6 @@ function DashboardPage() {
     const getProductIcon = (type: string) => {
         switch (type) {
             case 'auto': return '🚗'
-            case 'home': return '🏠'
-            case 'medical': return '🏥'
             default: return '📋'
         }
     }
@@ -71,12 +69,6 @@ function DashboardPage() {
                     <h1>Welcome, {user?.name?.split(' ')[0] || 'User'}</h1>
                     <p>Manage your policies and claims</p>
                 </div>
-                <button className="btn btn-primary" onClick={openChat}>
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
-                    </svg>
-                    Chat with ClaimBot
-                </button>
             </div>
 
             <section className="policies-section">

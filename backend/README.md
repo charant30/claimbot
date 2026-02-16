@@ -26,9 +26,9 @@ copy .env.example .env
 alembic upgrade head
 ```
 
-5. Seed database:
+5. Seed database (fresh start with ONE complete customer):
 ```bash
-python -m data.generator.seed
+python -m data.generator.fresh_start
 ```
 
 6. Start server:

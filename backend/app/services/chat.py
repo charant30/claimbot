@@ -11,9 +11,10 @@ from app.orchestration import (
     ConversationState,
     get_required_fields,
 )
-from app.db.models import SystemSettings, Case, CaseStatus
+from app.db.models import SystemSettings, Case, CaseStatus, User
 from app.core.logging import logger
 from app.services.session_store import get_session_store
+import uuid as uuid_lib
 
 
 STATE_KEY_PREFIX = "conversation_state:"
@@ -164,15 +165,16 @@ class ChatService:
         )
         
         if active_case:
-            logger.info(f"Thread {thread_id} has active case {active_case.case_id} ({active_case.status}) - skipping AI")
+            logger.info(f"Thread {thread_id} has active case {active_case.case_id} ({active_case.status}) - skipping AI, storing message for agent")
             
             # Append user message to history so agent sees it
             current_messages = state.get("messages", [])
             new_msg = {
+                "message_id": str(uuid_lib.uuid4()),
                 "role": "user",
                 "content": message,
                 "created_at": datetime.utcnow().isoformat(),
-                "metadata": {"actor_id": user_id}
+                "metadata": {"actor_id": user_id, "during_escalation": True}
             }
             current_messages.append(new_msg)
             state["messages"] = current_messages
@@ -182,11 +184,18 @@ class ChatService:
             state_key = f"{STATE_KEY_PREFIX}{thread_id}"
             session_store.set(state_key, state, ttl_hours=24)
             
+            if active_case.status == CaseStatus.ESCALATED:
+                response_text = "Your message has been sent. A specialist will be with you shortly."
+            else:
+                # AGENT_HANDLING - agent is actively chatting
+                response_text = ""
+            
             return {
                 "thread_id": thread_id,
-                "response": "A specialist will be with you shortly." if active_case.status == CaseStatus.ESCALATED else "",
+                "response": response_text,
                 "intent": "human_request",
                 "should_escalate": True,
+                "escalation_reason": "Active case - specialist handling",
                 "claim_id": str(active_case.claim_id) if active_case.claim_id else None,
             }
 
@@ -229,9 +238,13 @@ class ChatService:
                 "calculation_result": result.get("calculation_result"),
             }
             
-            # If escalation needed, create case packet
+            # If escalation needed, auto-create a Case record in the database
             if result.get("should_escalate"):
                 response["case_packet"] = result.get("case_packet")
+                try:
+                    self._create_escalation_case(thread_id, result)
+                except Exception as case_err:
+                    logger.error(f"Failed to create escalation case: {case_err}")
             
             return response
             
@@ -244,6 +257,56 @@ class ChatService:
                 "escalation_reason": f"Processing error: {str(e)}",
             }
     
+    def _create_escalation_case(self, thread_id: str, result: dict) -> None:
+        """
+        Auto-create a Case record when escalation is triggered.
+        This ensures the celest agent queue picks up the case.
+        """
+        # Check if case already exists for this thread
+        existing_case = self.db.query(Case).filter(
+            Case.chat_thread_id == thread_id,
+            Case.status.in_([CaseStatus.ESCALATED, CaseStatus.AGENT_HANDLING])
+        ).first()
+        
+        if existing_case:
+            logger.info(f"Escalation case already exists for thread {thread_id}: {existing_case.case_id}")
+            return
+        
+        claim_id = result.get("claim_id")
+        # Try to convert claim_id to UUID if it's a string
+        if claim_id and isinstance(claim_id, str):
+            try:
+                claim_id = uuid_lib.UUID(claim_id)
+            except ValueError:
+                claim_id = None
+        
+        case_packet = result.get("case_packet") or {}
+        case_packet["escalation_reason"] = result.get("escalation_reason", "User requested specialist")
+        case_packet["intent"] = result.get("intent")
+        user_id = result.get("user_id")
+        case_packet["user_id"] = user_id
+        if user_id and not (case_packet.get("first_name") or case_packet.get("email")):
+            try:
+                user = self.db.query(User).filter(User.user_id == user_id).first()
+                if user:
+                    case_packet["first_name"] = user.name or ""
+                    case_packet["last_name"] = ""
+                    case_packet["email"] = user.email or ""
+            except Exception as e:
+                logger.warning(f"Could not add user name/email to case_packet: {e}")
+
+        case = Case(
+            claim_id=claim_id,
+            chat_thread_id=thread_id,
+            status=CaseStatus.ESCALATED,
+            stage="escalated",
+            priority=3,
+            case_packet=case_packet,
+        )
+        self.db.add(case)
+        self.db.commit()
+        logger.info(f"Created escalation case {case.case_id} for thread {thread_id}")
+
     def clear_session(self, thread_id: str) -> None:
         """Clear a chat session."""
         session_store = get_session_store()

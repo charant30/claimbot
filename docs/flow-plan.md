@@ -9,10 +9,9 @@ This document outlines the end-to-end flow for the guided incident experience, d
 ### UI Flow
 1. **Intent Selection**
    - User selects `file_claim`.
-   - UI transitions to a structured form based on product line (auto/home/medical).
+   - UI transitions to a structured form for auto insurance claims.
 2. **Required Fields Form**
    - Auto: date, location, incident type, description, estimated damage, vehicle info.
-   - Home: date, location, incident type, description, affected areas, estimated damage.
 3. **Submit + Validate**
    - Client-side validation for empty fields.
    - Send structured payload in `metadata` to backend.

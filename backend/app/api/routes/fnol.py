@@ -6,14 +6,15 @@ Provides endpoints for the structured FNOL claim intake flow.
 from typing import List, Optional, Dict, Any
 from uuid import UUID
 import uuid as uuid_lib
-from datetime import datetime
+from datetime import datetime, date as date_type
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.db import get_db
-from app.db.models import Policy, ClaimDraft
+from app.db.models import Policy, ClaimDraft, Claim, Case, CaseStatus
+from app.db.models.claim import ClaimType, ClaimStatus
 from app.db.models.fnol_enums import ClaimDraftStatus, FNOLState as FNOLStateEnum
 from app.core import get_current_user_id, get_optional_user_id, logger
 from app.services.session_store import get_session_store
@@ -77,6 +78,8 @@ class FNOLStateResponse(BaseModel):
     thread_id: str
     claim_draft_id: str
     status: str
+    session_status: Optional[str] = "active"  # active | ended (for transcripts/Salesforce)
+    ended_at: Optional[str] = None
     current_state: str
     progress_percent: int
     completed_states: List[str]
@@ -144,6 +147,157 @@ def _get_session_key(thread_id: str) -> str:
     return f"fnol:{thread_id}"
 
 
+def _create_fnol_escalation_case(db: Session, thread_id: str, state: FNOLConversationState) -> None:
+    """
+    Create a Case record when FNOL escalation is triggered.
+    This ensures the case appears in the celest agent queue.
+    """
+    # Check if case already exists for this thread
+    existing = db.query(Case).filter(
+        Case.chat_thread_id == thread_id,
+        Case.status.in_([CaseStatus.ESCALATED, CaseStatus.AGENT_HANDLING])
+    ).first()
+    if existing:
+        logger.info(f"FNOL escalation case already exists for thread {thread_id}")
+        return
+
+    # Try to find the claim_id from the draft
+    claim_id = None
+    draft_id = state.get("claim_draft_id")
+    if draft_id:
+        draft = db.query(ClaimDraft).filter(ClaimDraft.claim_draft_id == draft_id).first()
+        if draft and draft.claim_id:
+            claim_id = draft.claim_id
+
+    # Build case packet from FNOL state
+    escalation_record = state.get("state_data", {}).get("escalation_record", {})
+    case_packet = {
+        "escalation_reason": state.get("escalation_reason", "User requested specialist"),
+        "escalation_type": escalation_record.get("type", "user_request"),
+        "claim_draft_id": draft_id,
+        "claim_number": state.get("claim_number"),
+        "fnol_state": state.get("current_state"),
+        "completed_states": state.get("completed_states", []),
+        "user_id": state.get("user_id"),
+    }
+
+    # Add policy info if available
+    policy_match = state.get("policy_match", {})
+    if policy_match:
+        case_packet["policy_number"] = policy_match.get("policy_number")
+        case_packet["first_name"] = policy_match.get("holder_first_name")
+        case_packet["last_name"] = policy_match.get("holder_last_name")
+
+    case = Case(
+        claim_id=claim_id,
+        chat_thread_id=thread_id,
+        status=CaseStatus.ESCALATED,
+        stage="escalated",
+        priority=3 if escalation_record.get("priority") != "critical" else 1,
+        case_packet=case_packet,
+    )
+    db.add(case)
+    db.commit()
+    logger.info(f"Created FNOL escalation case {case.case_id} for thread {thread_id}")
+
+
+def _convert_fnol_draft_to_claim(
+    db: Session,
+    claim_draft_id: str,
+    state: FNOLConversationState,
+    claim_number: str,
+) -> Optional[Claim]:
+    """
+    Create a Claim from submitted FNOL state and link it to the ClaimDraft.
+
+    So the submission appears in the database and is visible to customer (get_my_claims),
+    adjuster, and admin. Returns the created Claim or None if conversion failed.
+    """
+    draft = db.query(ClaimDraft).filter(
+        ClaimDraft.claim_draft_id == claim_draft_id,
+    ).first()
+
+    if not draft:
+        logger.warning(f"ClaimDraft not found for conversion: {claim_draft_id}")
+        return None
+    if draft.claim_id:
+        # Already converted
+        return db.query(Claim).filter(Claim.claim_id == draft.claim_id).first()
+
+    # We need a policy to create a claim (Claim.policy_id is required)
+    policy_id = draft.policy_id
+    if not policy_id:
+        logger.warning(f"ClaimDraft {claim_draft_id} has no policy_id; cannot create Claim")
+        # Still mark draft as submitted and set claim_number so user sees confirmation
+        update_claim_draft_with_retry(db, claim_draft_id, {
+            "status": ClaimDraftStatus.SUBMITTED,
+            "claim_number": claim_number,
+            "submitted_at": datetime.utcnow(),
+        })
+        return None
+
+    incident = state.get("incident", {})
+    incident_date = draft.incident_date
+    if not incident_date and incident.get("date"):
+        try:
+            incident_date = date_type.fromisoformat(incident["date"])
+        except (ValueError, TypeError):
+            incident_date = date_type.today()
+
+    claim_metadata = {
+        "description": draft.incident_description or incident.get("description"),
+        "location": incident.get("location_raw") or incident.get("location_normalized"),
+        "loss_type": incident.get("loss_type"),
+        "time": incident.get("time"),
+        "vehicles": state.get("vehicles", []),
+        "parties": state.get("parties", []),
+        "injuries": state.get("injuries", []),
+        "damages": state.get("damages", []),
+        "evidence": state.get("evidence", []),
+        "triage_route": draft.triage_route.value if draft.triage_route else None,
+    }
+    # Add estimated loss from damages if present
+    damages = state.get("damages", [])
+    if damages:
+        total = sum(
+            float(d.get("estimated_amount") or 0)
+            for d in damages
+            if d.get("estimated_amount") is not None
+        )
+        if total:
+            claim_metadata["estimated_loss"] = total
+
+    claim = Claim(
+        policy_id=policy_id,
+        claim_number=claim_number,
+        claim_type=ClaimType.INCIDENT,
+        status=ClaimStatus.SUBMITTED,
+        incident_date=incident_date,
+        loss_amount=claim_metadata.get("estimated_loss") or 0,
+        claim_metadata=claim_metadata,
+        timeline=[{
+            "status": "submitted",
+            "timestamp": datetime.utcnow().isoformat(),
+            "actor": str(draft.user_id) if draft.user_id else "guest",
+            "notes": "Claim submitted via FNOL",
+        }],
+    )
+    db.add(claim)
+    db.flush()
+
+    updates = {
+        "status": ClaimDraftStatus.CONVERTED,
+        "claim_id": claim.claim_id,
+        "claim_number": claim_number,
+        "submitted_at": datetime.utcnow(),
+        "updated_at": datetime.utcnow(),
+    }
+    if not update_claim_draft_with_retry(db, claim_draft_id, updates):
+        logger.warning(f"Failed to update ClaimDraft {claim_draft_id} after creating Claim")
+    logger.info(f"FNOL draft {claim_draft_id} converted to Claim {claim.claim_id} ({claim_number})")
+    return claim
+
+
 # ============================================================================
 # Routes
 # ============================================================================
@@ -186,6 +340,8 @@ async def create_fnol_session(
         user_id=user_id,
         policy_id=policy_id,
     )
+    state["session_status"] = "active"
+    state["ended_at"] = None
 
     # Store session
     session_store.set(_get_session_key(thread_id), state, ttl_hours=48)
@@ -254,6 +410,12 @@ async def process_fnol_message(
             detail="Session not found or expired",
         )
 
+    if state.get("session_status") == "ended":
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE,
+            detail="This session has ended. Please start a new claim.",
+        )
+
     # Verify authorization (if authenticated)
     if user_id and state.get("user_id") and state["user_id"] != user_id:
         raise HTTPException(
@@ -302,12 +464,51 @@ async def process_fnol_message(
     if incident.get("description"):
         updates["incident_description"] = incident["description"]
 
+    # Persist policy_id and user_id from identity match so Claim can be created on submit
+    policy_match = updated_state.get("policy_match", {})
+    policy_id_val = policy_match.get("policy_id")
+    if policy_id_val:
+        try:
+            updates["policy_id"] = UUID(str(policy_id_val))
+        except (TypeError, ValueError):
+            # Demo/simulate may return non-UUID (e.g. "demo-policy-id"); look up by policy_number
+            policy_number = policy_match.get("policy_number")
+            if policy_number:
+                policy = db.query(Policy).filter(Policy.policy_number == policy_number).first()
+                if policy:
+                    updates["policy_id"] = policy.policy_id
+    if updated_state.get("user_id") is not None:
+        updates["user_id"] = updated_state["user_id"]
+
     # Check for completion
     if updated_state.get("is_complete"):
         updates["status"] = ClaimDraftStatus.PENDING_REVIEW
 
     if not update_claim_draft_with_retry(db, updated_state["claim_draft_id"], updates):
         logger.warning(f"Failed to update claim draft {updated_state['claim_draft_id']} in database")
+
+    # When user has just submitted (reached NEXT_STEPS with claim_number), persist a real Claim
+    # so it appears in DB, adjuster, and admin.
+    if (
+        updated_state.get("claim_number")
+        and updated_state.get("current_state") == "NEXT_STEPS"
+    ):
+        draft_id = updated_state["claim_draft_id"]
+        draft = db.query(ClaimDraft).filter(ClaimDraft.claim_draft_id == draft_id).first()
+        if draft and not draft.claim_id:
+            _convert_fnol_draft_to_claim(
+                db,
+                draft_id,
+                updated_state,
+                updated_state["claim_number"],
+            )
+
+    # Auto-create Case in DB when FNOL escalation is triggered
+    if updated_state.get("should_escalate"):
+        try:
+            _create_fnol_escalation_case(db, request.thread_id, updated_state)
+        except Exception as case_err:
+            logger.error(f"Failed to create FNOL escalation case: {case_err}")
 
     logger.info(f"FNOL message processed: thread={request.thread_id}, state={updated_state['current_state']}")
 
@@ -340,10 +541,13 @@ async def get_fnol_state(
             detail="Not authorized for this session",
         )
 
+    session_status = state.get("session_status", "active")
     return FNOLStateResponse(
         thread_id=thread_id,
         claim_draft_id=state["claim_draft_id"],
         status="in_progress" if not state.get("is_complete") else "complete",
+        session_status=session_status,
+        ended_at=state.get("ended_at"),
         current_state=state["current_state"],
         progress_percent=state.get("progress_percent", 0),
         completed_states=state.get("completed_states", []),
@@ -525,6 +729,45 @@ async def upload_document(
     )
 
 
+@router.post("/session/{thread_id}/end")
+async def end_fnol_session(
+    thread_id: str,
+    user_id: Optional[str] = Depends(get_optional_user_id),
+):
+    """
+    End an FNOL session explicitly.
+
+    Marks the session as ended so it shows as inactive/ended in transcripts and
+    integrations (e.g. Salesforce). The customer must start a new session to continue.
+    """
+    session_store = get_session_store()
+    session_key = _get_session_key(thread_id)
+    state = session_store.get(session_key)
+
+    if not state:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Session not found or expired",
+        )
+
+    if user_id and state.get("user_id") and state["user_id"] != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized for this session",
+        )
+
+    if state.get("session_status") == "ended":
+        return {"status": "ended", "thread_id": thread_id, "message": "Session already ended."}
+
+    state["session_status"] = "ended"
+    state["ended_at"] = datetime.utcnow().isoformat()
+    state["status"] = "completed"  # for DB persist (SessionStatus.COMPLETED)
+    session_store.set(session_key, state, ttl_hours=48)
+
+    logger.info(f"FNOL session ended by user: thread={thread_id}")
+    return {"status": "ended", "thread_id": thread_id, "message": "Session ended."}
+
+
 @router.post("/session/{thread_id}/resume", response_model=FNOLSessionResponse)
 async def resume_fnol_session(
     thread_id: str,
@@ -567,6 +810,12 @@ async def resume_fnol_session(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized for this session",
+        )
+
+    if state.get("session_status") == "ended":
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE,
+            detail="This session has ended. Please start a new claim.",
         )
 
     # Refresh TTL
@@ -632,3 +881,55 @@ async def get_fnol_messages(
         ))
         
     return history
+
+
+class FNOLEscalationMessageRequest(BaseModel):
+    """Request to send a customer message during escalation."""
+    thread_id: str
+    message: str
+
+
+@router.post("/session/{thread_id}/escalation-message")
+async def send_escalation_message(
+    thread_id: str,
+    request: FNOLEscalationMessageRequest,
+    user_id: Optional[str] = Depends(get_optional_user_id),
+):
+    """
+    Send a customer message during escalation.
+    Bypasses the state machine and writes directly to the session store
+    so the agent can see it.
+    """
+    session_store = get_session_store()
+    session_key = _get_session_key(thread_id)
+    state = session_store.get(session_key)
+
+    if not state:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Session not found or expired",
+        )
+
+    if user_id and state.get("user_id") and state["user_id"] != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized for this session",
+        )
+
+    # Append user message directly to session messages
+    message_entry = {
+        "message_id": str(uuid_lib.uuid4()),
+        "role": "user",
+        "content": request.message,
+        "timestamp": datetime.utcnow().isoformat(),
+        "metadata": {"during_escalation": True},
+    }
+    
+    messages = state.get("messages", [])
+    messages.append(message_entry)
+    state["messages"] = messages
+    session_store.set(session_key, state, ttl_hours=48)
+
+    logger.info(f"Customer escalation message stored for thread {thread_id}")
+
+    return {"status": "sent", "message_id": message_entry["message_id"]}

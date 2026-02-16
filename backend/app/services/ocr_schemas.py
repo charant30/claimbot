@@ -147,48 +147,8 @@ class IncidentPhotoExtraction(BaseModel):
     )
 
 
-class MedicalEOBExtraction(BaseModel):
-    """Extracted data from Explanation of Benefits (EOB) document."""
-    eob_number: Optional[str] = Field(
-        None, description="EOB reference number"
-    )
-    service_date: Optional[str] = Field(
-        None, description="Date of medical service"
-    )
-    patient_name: Optional[str] = Field(
-        None, description="Patient name"
-    )
-    provider_name: Optional[str] = Field(
-        None, description="Healthcare provider name"
-    )
-    provider_npi: Optional[str] = Field(
-        None, description="Provider NPI number"
-    )
-    diagnosis_codes: List[str] = Field(
-        default_factory=list, description="ICD diagnosis codes"
-    )
-    procedure_codes: List[str] = Field(
-        default_factory=list, description="CPT procedure codes"
-    )
-    billed_amount: Optional[str] = Field(
-        None, description="Amount billed by provider"
-    )
-    allowed_amount: Optional[str] = Field(
-        None, description="Insurance allowed amount"
-    )
-    patient_responsibility: Optional[str] = Field(
-        None, description="Amount patient owes"
-    )
-    plan_paid: Optional[str] = Field(
-        None, description="Amount insurance paid"
-    )
-    confidence: float = Field(
-        0.0, ge=0.0, le=1.0, description="Confidence score for extraction quality"
-    )
-
-
 class MedicalRecordExtraction(BaseModel):
-    """Extracted data from medical records."""
+    """Extracted data from medical records (for auto injury claims)."""
     record_date: Optional[str] = Field(
         None, description="Date of the medical record"
     )
@@ -199,7 +159,7 @@ class MedicalRecordExtraction(BaseModel):
         None, description="Healthcare provider name"
     )
     facility_name: Optional[str] = Field(
-        None, description="Medical facility name"
+        None, description="Facility name"
     )
     visit_type: Optional[str] = Field(
         None, description="Type of visit (emergency, routine, etc.)"
@@ -228,7 +188,6 @@ DOC_TYPE_SCHEMA_MAP = {
     "invoice": InvoiceExtraction,
     "incident_photos": IncidentPhotoExtraction,
     "photo": IncidentPhotoExtraction,
-    "eob": MedicalEOBExtraction,
     "medical_record": MedicalRecordExtraction,
     "medical_records": MedicalRecordExtraction,
 }
@@ -311,31 +270,13 @@ This is an INCIDENT PHOTO. Analyze and extract:
 
 Return ONLY valid JSON. Use null for fields you cannot determine."""
 
-    elif doc_type == "eob":
-        return base_prompt + """
-This is an EXPLANATION OF BENEFITS (EOB). Extract:
-- eob_number: EOB reference number
-- service_date: Date of service (YYYY-MM-DD)
-- patient_name: Patient's name
-- provider_name: Healthcare provider name
-- provider_npi: NPI number if shown
-- diagnosis_codes: List of ICD codes
-- procedure_codes: List of CPT codes
-- billed_amount: Amount billed
-- allowed_amount: Allowed amount
-- patient_responsibility: Patient owes
-- plan_paid: Insurance paid
-- confidence: Your confidence (0.0 to 1.0)
-
-Return ONLY valid JSON. Use null for fields you cannot find."""
-
     elif doc_type in ["medical_record", "medical_records"]:
         return base_prompt + """
-This is a MEDICAL RECORD. Extract:
+This is a MEDICAL RECORD (related to an auto injury claim). Extract:
 - record_date: Date of record (YYYY-MM-DD)
 - patient_name: Patient name
 - provider_name: Provider name
-- facility_name: Medical facility
+- facility_name: Facility name
 - visit_type: Type of visit
 - diagnosis: Primary diagnosis
 - treatment: Treatment provided

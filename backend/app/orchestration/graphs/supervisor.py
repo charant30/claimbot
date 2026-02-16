@@ -51,8 +51,6 @@ PRODUCT_CLASSIFIER_PROMPT = f"""Based on the conversation, determine which insur
 {SECURITY_INSTRUCTIONS}
 Available products:
 - auto: Vehicle/car insurance
-- home: Homeowners/property insurance
-- medical: Health/medical insurance
 
 Respond with ONLY the product name, nothing else."""
 
@@ -137,8 +135,8 @@ def classify_intent(state: ConversationState) -> ConversationState:
     next_step = "generate_response"
     if intent == ClaimIntent.FILE_CLAIM.value:
         next_step = "classify_product"
-    elif intent == ClaimIntent.CHECK_STATUS.value:
-        next_step = "agent_status"
+    elif intent in (ClaimIntent.CHECK_STATUS.value, ClaimIntent.COVERAGE_QUESTION.value, ClaimIntent.BILLING.value):
+        next_step = "inquiry_subgraph"
 
     return {
         **state,
@@ -202,7 +200,7 @@ def ask_product(state: ConversationState) -> ConversationState:
     """Ask user to specify product type."""
     return {
         **state,
-        "ai_response": "I'd be happy to help you file a claim. Which type of insurance is this for?\n\n• **Auto** - Vehicle or car insurance\n• **Home** - Homeowners or property insurance\n• **Medical** - Health or medical insurance",
+        "ai_response": "I'd be happy to help you file a claim for your auto insurance. Is this regarding your vehicle/car insurance?",
         "next_step": "respond",
     }
 
@@ -216,9 +214,7 @@ def route_to_subgraph(state: ConversationState) -> ConversationState:
         logger.warning("route_to_subgraph called without product_line set")
         return {**state, "next_step": "ask_product"}
 
-    if product == ProductLine.MEDICAL.value:
-        return {**state, "next_step": "medical_subgraph"}
-    elif product in (ProductLine.AUTO.value, ProductLine.HOME.value):
+    if product == ProductLine.AUTO.value:
         return {**state, "next_step": "incident_subgraph"}
     else:
         # Unknown product type - ask user to clarify
@@ -391,7 +387,7 @@ def agent_status(state: ConversationState) -> ConversationState:
     
     # Try to extract claim number if not set (or if user provides a different one)
     # Regex for common formats (INC-*, CLM-*, AUT-*, etc.)
-    match = re.search(r"([A-Z]{3,}-[A-Z0-9]+)", current_input, re.IGNORECASE)
+    match = re.search(r"([A-Z]{3,}-[A-Z0-9\-]+)", current_input, re.IGNORECASE)
     if match:
         extracted = match.group(0).upper()
         # If we found a new claim number, update it
@@ -556,12 +552,12 @@ def escalate(state: ConversationState) -> ConversationState:
 
 
 def respond(state: ConversationState) -> ConversationState:
-    """Final response step - adds message to history."""
+    """Final response step - appends current exchange to message history.
+    State uses operator.add for messages, so return only the new messages (reducer will add to existing)."""
     new_messages = [
-        {"role": "user", "content": state["current_input"]},
-        {"role": "assistant", "content": state["ai_response"]},
+        {"role": "user", "content": state["current_input"], "created_at": datetime.utcnow().isoformat()},
+        {"role": "assistant", "content": state["ai_response"], "created_at": datetime.utcnow().isoformat()},
     ]
-    
     return {
         **state,
         "messages": new_messages,
@@ -575,9 +571,8 @@ def route_next(state: ConversationState) -> str:
 
 
 from app.orchestration.graphs.incident import incident_graph
-from app.orchestration.graphs.medical import medical_graph
+from app.orchestration.graphs.inquiry import inquiry_graph
 
-# ... existing code ...
 
 def build_supervisor_graph() -> StateGraph:
     """Build the supervisor graph."""
@@ -597,7 +592,7 @@ def build_supervisor_graph() -> StateGraph:
     
     # Add subgraph nodes
     workflow.add_node("incident_subgraph", incident_graph)
-    workflow.add_node("medical_subgraph", medical_graph)
+    workflow.add_node("inquiry_subgraph", inquiry_graph)
     
     workflow.add_node("generate_response", generate_response)
     workflow.add_node("check_escalation", check_escalation)
@@ -616,11 +611,12 @@ def build_supervisor_graph() -> StateGraph:
             "generate_response": "generate_response",
             "escalate": "escalate",
             "route_to_subgraph": "route_to_subgraph",
-            "agent_status": "agent_status",
+            "inquiry_subgraph": "inquiry_subgraph",
         }
     )
 
-    workflow.add_edge("agent_status", "generate_response")
+    # Route inquiry subgraph output to check_escalation
+    workflow.add_edge("inquiry_subgraph", "check_escalation")
     
     workflow.add_conditional_edges(
         "classify_product",
@@ -663,14 +659,12 @@ def build_supervisor_graph() -> StateGraph:
         route_next,
         {
             "incident_subgraph": "incident_subgraph",
-            "medical_subgraph": "medical_subgraph",
             "ask_product": "ask_product",  # Fallback for missing/invalid product
         }
     )
     
     # Route output of subgraphs
     workflow.add_edge("incident_subgraph", "check_escalation")
-    workflow.add_edge("medical_subgraph", "check_escalation")
     
     workflow.add_edge("generate_response", "check_escalation")
     

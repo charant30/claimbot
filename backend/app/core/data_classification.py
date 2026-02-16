@@ -36,7 +36,7 @@ FIELD_CLASSIFICATIONS: dict[str, DataClassification] = {
     "bank_account": DataClassification.RESTRICTED,
     "routing_number": DataClassification.RESTRICTED,
     
-    # Medical fields (PHI)
+    # Injury-related fields (PHI)
     "diagnosis_code": DataClassification.RESTRICTED,
     "procedure_code": DataClassification.RESTRICTED,
     "provider_npi": DataClassification.INTERNAL,

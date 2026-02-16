@@ -1,5 +1,5 @@
 """
-Provider database model (medical network)
+Provider database model
 """
 import uuid
 from enum import Enum as PyEnum
@@ -17,7 +17,7 @@ class NetworkStatus(str, PyEnum):
 
 
 class Provider(Base):
-    """Healthcare provider for medical claims network validation."""
+    """Provider entity for network validation."""
     
     __tablename__ = "providers"
     

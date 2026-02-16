@@ -12,7 +12,6 @@ from app.orchestration.state import (
 from app.orchestration.graphs import (
     supervisor_graph,
     incident_graph,
-    medical_graph,
 )
 
 __all__ = [
@@ -29,5 +28,4 @@ __all__ = [
     # Graphs
     "supervisor_graph",
     "incident_graph",
-    "medical_graph",
 ]

@@ -25,6 +25,7 @@ from app.db.models.claim_draft import (
     ClaimDraft, ClaimDraftVehicle, ClaimDraftParty, ClaimDraftImpact,
     ClaimDraftInjury, ClaimDraftDamage, ClaimDraftEvidence, ClaimDraftAudit
 )
+from app.db.models.session import Session, SessionType, SessionStatus
 
 __all__ = [
     # User
@@ -92,4 +93,8 @@ __all__ = [
     "ClaimDraftDamage",
     "ClaimDraftEvidence",
     "ClaimDraftAudit",
+    # Session
+    "Session",
+    "SessionType",
+    "SessionStatus",
 ]

@@ -45,7 +45,7 @@ class PolicyValidationService:
         
         Args:
             user_id: User's UUID
-            product_type: "auto", "home", or "medical"
+            product_type: "auto"
             
         Returns:
             PolicyValidationResult with eligibility status
@@ -56,7 +56,7 @@ class PolicyValidationService:
         except ValueError:
             return PolicyValidationResult(
                 is_eligible=False,
-                reason=f"Invalid product type: {product_type}. Must be auto, home, or medical."
+                reason=f"Invalid product type: {product_type}. Must be auto."
             )
         
         # Find user's policy for this product type

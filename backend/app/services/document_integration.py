@@ -126,7 +126,7 @@ def merge_document_entities_to_collected_fields(
         # Parties
         "parties": ["other_party_info"],
         "other_party_info": ["other_party_info"],
-        # Provider info (medical)
+        # Provider info (for injury claims)
         "provider_name": ["provider_name"],
         "provider_npi": ["provider_npi"],
     }

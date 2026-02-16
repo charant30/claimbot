@@ -155,16 +155,16 @@ def celest_headers(celest_token: str) -> dict:
 @pytest.fixture
 def test_policy(db: Session, test_user):
     """Create a test policy."""
-    from app.db.models import Policy
-    
+    from datetime import date
+    from app.db.models import Policy, PolicyStatus
+
     policy = Policy(
         user_id=test_user.user_id,
         policy_number="TEST-2024-001234",
         product_type="auto",
-        effective_date="2024-01-01",
-        expiration_date="2025-01-01",
-        status="active",
-        is_active=True,
+        effective_date=date(2024, 1, 1),
+        expiration_date=date(2025, 1, 1),
+        status=PolicyStatus.ACTIVE,
     )
     db.add(policy)
     db.commit()
@@ -173,19 +173,19 @@ def test_policy(db: Session, test_user):
 
 
 @pytest.fixture
-def test_claim(db: Session, test_user, test_policy):
+def test_claim(db: Session, test_policy):
     """Create a test claim."""
-    from app.db.models import Claim
-    
+    from datetime import date
+    from app.db.models import Claim, ClaimType, ClaimStatus
+
     claim = Claim(
-        user_id=test_user.user_id,
         policy_id=test_policy.policy_id,
         claim_number="CLM-2024-TEST001",
-        claim_type="incident",
-        incident_date="2024-01-15",
-        incident_description="Test incident",
-        status="submitted",
+        claim_type=ClaimType.INCIDENT,
+        status=ClaimStatus.SUBMITTED,
+        incident_date=date(2024, 1, 15),
         loss_amount=5000.00,
+        claim_metadata={"description": "Test incident"},
     )
     db.add(claim)
     db.commit()

@@ -7,8 +7,8 @@ from decimal import Decimal
 from langchain_core.tools import tool
 from sqlalchemy.orm import Session
 
-from app.db.models import Policy, Claim, Provider, ClaimType, ClaimStatus
-from app.services.calculation import calculate_incident_payout, adjudicate_medical_claim
+from app.db.models import Policy, Claim, ClaimType, ClaimStatus
+from app.services.calculation import calculate_incident_payout
 
 
 @tool
@@ -82,6 +82,7 @@ def lookup_claim_by_number(claim_number: str, db: Session) -> dict:
         if not claim:
             return {"error": f"Claim {claim_number} not found"}
         
+        metadata = claim.claim_metadata or {}
         return {
             "claim_id": str(claim.claim_id),
             "claim_number": claim.claim_number,
@@ -89,7 +90,7 @@ def lookup_claim_by_number(claim_number: str, db: Session) -> dict:
             "incident_date": claim.incident_date.isoformat(),
             "loss_amount": float(claim.loss_amount),
             "paid_amount": float(claim.paid_amount),
-            "description": claim.incident_description,
+            "description": metadata.get("description") or metadata.get("incident_description"),
             "timeline": claim.timeline or [],
         }
     except Exception as e:
@@ -166,105 +167,7 @@ def calculate_incident_claim_payout(
     }
 
 
-@tool
-def calculate_medical_claim_payout(
-    billed_amount: float,
-    provider_npi: str,
-    procedure_code: str,
-    policy_id: str,
-    db: Session,
-) -> dict:
-    """
-    Calculate payout for a medical claim using deterministic engine.
-    
-    Args:
-        billed_amount: Amount billed by provider
-        provider_npi: Provider's NPI
-        procedure_code: CPT procedure code
-        policy_id: UUID of the policy
-        db: Database session
-        
-    Returns:
-        Medical adjudication result
-    """
-    policy = db.query(Policy).filter(Policy.policy_id == policy_id).first()
-    if not policy:
-        return {"error": "Policy not found"}
-    
-    # Get provider for network status and allowed amount
-    provider = db.query(Provider).filter(Provider.npi == provider_npi).first()
-    
-    is_in_network = provider.network_status.value != "out_of_network" if provider else False
-    allowed_amount = provider.get_allowed_amount(procedure_code) if provider else 0.0
-    
-    # Find hospital/physician coverage
-    coverage = None
-    for c in policy.coverages:
-        if c.coverage_type in ["hospital", "physician"]:
-            coverage = c
-            break
-    
-    if not coverage:
-        return {"error": "Medical coverage not found on policy"}
-    
-    # TODO: Track deductible across claims (simplified for demo)
-    deductible_remaining = coverage.deductible
-    
-    result = adjudicate_medical_claim(
-        billed_amount=Decimal(str(billed_amount)),
-        allowed_amount=Decimal(str(allowed_amount)),
-        copay=coverage.copay,
-        deductible_remaining=deductible_remaining,
-        coinsurance_pct=coverage.coinsurance_pct,
-        coverage_limit=coverage.limit_amount,
-        is_in_network=is_in_network,
-    )
-    
-    return {
-        "billed_amount": float(result.billed_amount),
-        "allowed_amount": float(result.allowed_amount),
-        "copay": float(result.copay),
-        "deductible_applied": float(result.deductible_applied),
-        "coinsurance_amount": float(result.coinsurance_amount),
-        "member_responsibility": float(result.member_responsibility),
-        "payer_responsibility": float(result.payer_responsibility),
-        "is_in_network": result.is_in_network,
-        "breakdown": result.breakdown,
-    }
-
-
-@tool
-def check_provider_network(provider_npi: str, db: Session) -> dict:
-    """
-    Check if a provider is in-network.
-    
-    Args:
-        provider_npi: Provider's NPI
-        db: Database session
-        
-    Returns:
-        Provider network status
-    """
-    provider = db.query(Provider).filter(Provider.npi == provider_npi).first()
-    
-    if not provider:
-        return {
-            "found": False,
-            "message": "Provider not found in database",
-        }
-    
-    return {
-        "found": True,
-        "name": provider.name,
-        "npi": provider.npi,
-        "network_status": provider.network_status.value,
-        "is_in_network": provider.network_status.value != "out_of_network",
-        "specialties": provider.specialties,
-    }
-
-
 # Export tools for use in graphs
 POLICY_TOOLS = [get_policy_details, get_claim_status, get_claim_by_number]
 INCIDENT_TOOLS = [calculate_incident_claim_payout]
-MEDICAL_TOOLS = [calculate_medical_claim_payout, check_provider_network]
-ALL_TOOLS = POLICY_TOOLS + INCIDENT_TOOLS + MEDICAL_TOOLS
+ALL_TOOLS = POLICY_TOOLS + INCIDENT_TOOLS

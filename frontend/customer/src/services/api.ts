@@ -169,6 +169,8 @@ export interface FNOLStateResponse {
     thread_id: string
     claim_draft_id: string
     status: string
+    session_status?: 'active' | 'ended'
+    ended_at?: string
     current_state: string
     progress_percent: number
     completed_states: string[]
@@ -241,8 +243,21 @@ export const fnolApi = {
         return response.data
     },
 
+    endSession: async (threadId: string): Promise<{ status: string; thread_id: string }> => {
+        const response = await api.post(`/fnol/session/${threadId}/end`)
+        return response.data
+    },
+
     getMessages: async (threadId: string): Promise<FNOLHistoryMessage[]> => {
         const response = await api.get(`/fnol/session/${threadId}/messages`)
+        return response.data
+    },
+
+    sendEscalationMessage: async (threadId: string, message: string): Promise<any> => {
+        const response = await api.post(`/fnol/session/${threadId}/escalation-message`, {
+            thread_id: threadId,
+            message,
+        })
         return response.data
     },
 }

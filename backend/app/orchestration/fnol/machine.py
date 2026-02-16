@@ -426,8 +426,23 @@ def build_fnol_graph() -> StateGraph:
         }
     )
 
-    # Terminal states
-    workflow.add_edge("NEXT_STEPS", END)
+    # NEXT_STEPS can route to HANDOFF_ESCALATION if user requests specialist
+    def route_from_next_steps(state: FNOLConversationState) -> str:
+        """Route from NEXT_STEPS state."""
+        if state.get("should_escalate"):
+            return "HANDOFF_ESCALATION"
+        return "__end__"
+
+    workflow.add_conditional_edges(
+        "NEXT_STEPS",
+        route_from_next_steps,
+        {
+            "HANDOFF_ESCALATION": "HANDOFF_ESCALATION",
+            "__end__": END,
+        }
+    )
+
+    # HANDOFF_ESCALATION is terminal
     workflow.add_edge("HANDOFF_ESCALATION", END)
 
     return workflow

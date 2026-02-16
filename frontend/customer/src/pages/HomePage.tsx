@@ -30,7 +30,7 @@ function HomePage() {
                     <div className="feature-card">
                         <div className="feature-icon">📋</div>
                         <h3>File a Claim</h3>
-                        <p>Auto, Home, or Medical - we've got you covered</p>
+                        <p>Auto insurance claims - we've got you covered</p>
                     </div>
                     <div className="feature-card">
                         <div className="feature-icon">🔍</div>

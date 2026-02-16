@@ -229,7 +229,13 @@ def generate_claim_summary(state: FNOLConversationState) -> str:
             vehicle_str = " ".join(parts) if parts else "Vehicle"
 
             role = v.get("role", "").replace("_", " ").title()
-            drivable = "Yes" if v.get("is_drivable") else "No"
+            drivable_val = v.get("drivable") or (v.get("is_drivable") and "yes" or "no")
+            if drivable_val in ("n/a", "N/A"):
+                drivable = "N/A"
+            elif drivable_val in ("yes", True):
+                drivable = "Yes"
+            else:
+                drivable = "No"
 
             lines.append(f"• {vehicle_str} ({role})")
             lines.append(f"  Drivable: {drivable}")
@@ -292,27 +298,14 @@ def generate_claim_summary(state: FNOLConversationState) -> str:
 
 def create_claim_draft(state: FNOLConversationState) -> dict:
     """
-    Create the claim draft in the database.
+    Prepare claim submission: use existing claim_draft_id and generate claim number.
 
-    In real implementation, this would:
-    1. Create ClaimDraft record
-    2. Create related records (vehicles, parties, injuries, etc.)
-    3. Return the claim number
-
-    For now, returns a simulated success response.
+    The actual Claim record is created in the API layer (fnol.py) when we detect
+    submission, so that we have DB session and can persist Claim + update ClaimDraft.
     """
-    # Generate claim draft ID and number
-    claim_draft_id = str(uuid.uuid4())
+    # Use the existing draft ID from session (created at FNOL session start)
+    claim_draft_id = state.get("claim_draft_id") or str(uuid.uuid4())
     claim_number = generate_claim_number(state)
-
-    # In real implementation:
-    # 1. Create ClaimDraft record with all collected data
-    # 2. Create ClaimDraftVehicle records
-    # 3. Create ClaimDraftParty records
-    # 4. Create ClaimDraftInjury records
-    # 5. Create ClaimDraftDamage records
-    # 6. Create ClaimDraftEvidence records
-    # 7. Create ClaimDraftAudit records for the submission
 
     return {
         "success": True,

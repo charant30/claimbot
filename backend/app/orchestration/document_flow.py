@@ -115,60 +115,6 @@ DEFAULT_DOCUMENT_FLOWS = {
             ),
         ],
     },
-    "home": {
-        "fire": [
-            DocumentRequirement(
-                doc_type="incident_photos",
-                display_name="Damage Photos",
-                required_fields=[],
-            ),
-            DocumentRequirement(
-                doc_type="repair_estimate",
-                display_name="Contractor Estimate",
-                required_fields=["total_amount"],
-            ),
-        ],
-        "water": [
-            DocumentRequirement(
-                doc_type="incident_photos",
-                display_name="Damage Photos",
-                required_fields=[],
-            ),
-            DocumentRequirement(
-                doc_type="repair_estimate",
-                display_name="Repair Estimate",
-                required_fields=["total_amount"],
-            ),
-        ],
-        "theft": [
-            DocumentRequirement(
-                doc_type="police_report",
-                display_name="Police Report",
-                required_fields=["police_report_number"],
-            ),
-            DocumentRequirement(
-                doc_type="incident_photos",
-                display_name="Photos of Damage",
-                required_fields=[],
-            ),
-        ],
-    },
-    "medical": {
-        "default": [
-            DocumentRequirement(
-                doc_type="eob",
-                display_name="Explanation of Benefits",
-                required_fields=["service_date", "billed_amount"],
-            ),
-            DocumentRequirement(
-                doc_type="invoice",
-                display_name="Medical Invoice",
-                required_fields=["total_amount"],
-                is_conditional=True,
-                condition="eob.patient_responsibility > 0",
-            ),
-        ],
-    },
 }
 
 # Document request messages
@@ -177,8 +123,7 @@ DOCUMENT_REQUEST_MESSAGES = {
     "incident_photos": "Please upload photos of the damage. Clear photos from multiple angles are required to verify and assess the incident.",
     "repair_estimate": "Please upload a repair estimate from a qualified repair shop. This should include itemized costs for parts and labor.",
     "invoice": "Please upload the invoice for the completed repairs. This should show the final amount paid.",
-    "eob": "Please upload your Explanation of Benefits (EOB) from your insurance provider. You can usually find this in your online portal or mail.",
-    "medical_record": "Please upload relevant medical records related to this claim.",
+    "medical_record": "Please upload relevant medical records related to any injuries from this incident.",
 }
 
 
@@ -191,7 +136,7 @@ def get_required_documents(
     Get the list of required documents for a product/incident combination.
 
     Args:
-        product_line: The product line (auto, home, medical)
+        product_line: The product line (auto)
         incident_type: Optional incident type for more specific requirements
         collected_fields: Current collected fields to evaluate conditions
 
@@ -208,10 +153,6 @@ def get_required_documents(
     if not requirements:
         if product_line == "auto":
             requirements = product_flows.get("collision", [])
-        elif product_line == "home":
-            requirements = product_flows.get("fire", [])
-        elif product_line == "medical":
-            requirements = DEFAULT_DOCUMENT_FLOWS.get("medical", {}).get("default", [])
 
     # Filter out conditional documents that don't apply
     required_docs = []
@@ -378,7 +319,6 @@ def get_document_display_name(doc_type: str) -> str:
         "incident_photos": "Incident Photos",
         "repair_estimate": "Repair Estimate",
         "invoice": "Invoice",
-        "eob": "Explanation of Benefits",
         "medical_record": "Medical Records",
         "photo": "Photo",
         "other": "Document",

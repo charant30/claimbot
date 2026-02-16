@@ -10,11 +10,12 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 
 from app.db import get_db
+from app.services.session_store import deduplicate_messages
 from app.db.models import (
-    SystemSettings, AuditLog, User, Case, Claim,
+    SystemSettings, AuditLog, User, Case, Claim, Policy,
     CaseStatus, ClaimStatus, DocumentFlowConfig, IntentConfig, FlowRule
 )
-from app.core import require_role, logger
+from app.core import require_role, logger, log_audit_event
 from app.services import flow_config as flow_config_service
 
 router = APIRouter()
@@ -216,6 +217,94 @@ async def get_metrics(
     )
 
 
+# ----- Claims list and status update (for admin/Celest review and approval) -----
+class ClaimListItem(BaseModel):
+    claim_id: str
+    claim_number: str
+    policy_id: str
+    status: str
+    incident_date: str
+    loss_amount: float
+    claim_metadata: Dict[str, Any]
+    created_at: str
+
+
+class UpdateClaimStatusRequest(BaseModel):
+    status: str  # submitted, under_review, approved, denied, paid
+
+
+@router.get("/claims", response_model=List[ClaimListItem])
+async def list_claims(
+    status_filter: Optional[str] = None,
+    limit: int = 100,
+    payload: dict = Depends(require_role(["admin", "celest"])),
+    db: Session = Depends(get_db),
+):
+    """List all claims for admin/Celest review. Optional filter by status."""
+    query = db.query(Claim).order_by(Claim.created_at.desc()).limit(limit)
+    if status_filter:
+        try:
+            query = query.filter(Claim.status == ClaimStatus(status_filter))
+        except ValueError:
+            pass
+    claims = query.all()
+    return [
+        ClaimListItem(
+            claim_id=str(c.claim_id),
+            claim_number=c.claim_number,
+            policy_id=str(c.policy_id),
+            status=c.status.value,
+            incident_date=c.incident_date.isoformat(),
+            loss_amount=float(c.loss_amount),
+            claim_metadata=c.claim_metadata or {},
+            created_at=c.created_at.isoformat(),
+        )
+        for c in claims
+    ]
+
+
+@router.patch("/claims/{claim_id}")
+async def update_claim_status(
+    claim_id: UUID,
+    request: UpdateClaimStatusRequest,
+    payload: dict = Depends(require_role(["admin", "celest"])),
+    db: Session = Depends(get_db),
+):
+    """Update claim status (e.g. approve/deny). Change is visible to customer on their dashboard."""
+    claim = db.query(Claim).filter(Claim.claim_id == claim_id).first()
+    if not claim:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Claim not found")
+    try:
+        new_status = ClaimStatus(request.status)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid status. Must be one of: {[s.value for s in ClaimStatus]}",
+        )
+    old_status = claim.status
+    claim.status = new_status
+    claim.add_timeline_event(
+        new_status.value,
+        str(payload.get("sub", "admin")),
+        f"Status updated from {old_status.value} to {new_status.value}",
+    )
+    db.commit()
+    db.refresh(claim)
+    actor = str(payload.get("sub", "admin"))
+    log_audit_event(
+        "claim_status_updated",
+        actor,
+        payload.get("role", "admin"),
+        {"claim_id": str(claim_id), "old_status": old_status.value, "new_status": new_status.value},
+    )
+    logger.info(f"Claim {claim_id} status updated to {new_status.value} by {actor}")
+    return {
+        "claim_id": str(claim.claim_id),
+        "claim_number": claim.claim_number,
+        "status": claim.status.value,
+    }
+
+
 @router.get("/audit-logs", response_model=List[AuditLogResponse])
 async def get_audit_logs(
     limit: int = 100,
@@ -244,6 +333,22 @@ async def get_audit_logs(
     ]
 
 
+class SessionResponse(BaseModel):
+    session_id: str
+    user_id: Optional[str]
+    user_name: Optional[str]
+    user_email: Optional[str]
+    session_type: Optional[str]
+    status: Optional[str]
+    thread_id: Optional[str]
+    claim_draft_id: Optional[str]
+    claim_number: Optional[str]
+    created_at: Optional[str]
+    updated_at: Optional[str]
+    last_activity_at: Optional[str]
+    completed_at: Optional[str]
+
+
 class TranscriptSummary(BaseModel):
     thread_id: str
     user_id: str
@@ -261,53 +366,130 @@ class TranscriptDetail(BaseModel):
     created_at: str
 
 
+@router.get("/sessions", response_model=List[SessionResponse])
+async def get_sessions(
+    limit: int = 100,
+    include_completed: bool = True,
+    payload: dict = Depends(require_role(["admin"])),
+    db: Session = Depends(get_db),
+):
+    """Get all chat sessions with user names for admin review."""
+    from app.services.session_store import get_session_store
+    session_store = get_session_store()
+
+    # Get sessions from database-backed store
+    sessions = session_store.list_all(limit=limit, include_completed=include_completed)
+
+    return [
+        SessionResponse(
+            session_id=session.get("session_id", ""),
+            user_id=session.get("user_id"),
+            user_name=session.get("user_name"),
+            user_email=session.get("user_email"),
+            session_type=session.get("session_type"),
+            status=session.get("status"),
+            thread_id=session.get("thread_id"),
+            claim_draft_id=session.get("claim_draft_id"),
+            claim_number=session.get("claim_number"),
+            created_at=session.get("created_at"),
+            updated_at=session.get("updated_at"),
+            last_activity_at=session.get("last_activity_at"),
+            completed_at=session.get("completed_at"),
+        )
+        for session in sessions
+    ]
+
+
+def _canonical_thread_id(session: dict) -> str:
+    """Return a canonical thread id for deduplication (same conversation may be stored under fnol:uuid or conversation_state:uuid)."""
+    tid = session.get("thread_id")
+    if tid:
+        return tid
+    sid = session.get("session_id", "")
+    for prefix in ("fnol:", "conversation_state:"):
+        if sid.startswith(prefix):
+            return sid[len(prefix):] or sid
+    return sid
+
+
 @router.get("/transcripts", response_model=List[TranscriptSummary])
 async def get_transcripts(
     limit: int = 50,
     payload: dict = Depends(require_role(["admin"])),
     db: Session = Depends(get_db),
 ):
-    """Get all chat session transcripts for admin review."""
+    """Get all chat session transcripts for admin review. Deduplicated by thread so each conversation appears once."""
     from app.services.session_store import get_session_store
     session_store = get_session_store()
 
-    sessions = session_store.list_all(limit=limit)
+    sessions = session_store.list_all(limit=limit * 2)
+    by_thread: dict = {}
+    for session in sessions:
+        canonical = _canonical_thread_id(session)
+        existing = by_thread.get(canonical)
+        last_activity = session.get("last_activity_at") or session.get("created_at") or ""
+        existing_activity = (existing.get("last_activity_at") or existing.get("created_at") or "") if existing else ""
+        if existing is None or last_activity > existing_activity:
+            by_thread[canonical] = session
 
-    return [
-        TranscriptSummary(
-            thread_id=session.get("thread_id", ""),
+    result = []
+    for session in list(by_thread.values())[:limit]:
+        msgs = deduplicate_messages(session.get("messages", []))
+        canonical = _canonical_thread_id(session)
+        result.append(TranscriptSummary(
+            thread_id=canonical,
             user_id=session.get("user_id", ""),
             policy_id=session.get("policy_id"),
-            message_count=len(session.get("messages", [])),
+            message_count=len(msgs),
             created_at=session.get("created_at", ""),
-            last_message=session.get("messages", [])[-1].get("content", "")[:100] if session.get("messages") else None,
-        )
-        for session in sessions
-    ]
+            last_message=msgs[-1].get("content", "")[:100] if msgs else None,
+        ))
+    return result
 
 
-@router.get("/transcripts/{thread_id}", response_model=TranscriptDetail)
+@router.get("/transcripts/{session_identifier}", response_model=TranscriptDetail)
 async def get_transcript_detail(
-    thread_id: str,
+    session_identifier: str,
     payload: dict = Depends(require_role(["admin"])),
     db: Session = Depends(get_db),
 ):
-    """Get detailed transcript for a specific chat session."""
+    """Get detailed transcript for a specific chat session.
+    
+    The session_identifier can be either:
+    - A session_id (the key used in session store, e.g., "fnol:xxx" or "conversation_state:xxx")
+    - A thread_id (for backwards compatibility)
+    """
     from app.services.session_store import get_session_store
+    from app.db.models import Session as DBSession
+    
     session_store = get_session_store()
 
-    session = session_store.get(thread_id)
+    # Try the identifier directly first (it might be the session_id)
+    session = session_store.get(session_identifier)
+    
+    # If not found, search database by session_id then by thread_id
+    if not session:
+        try:
+            db_session = db.query(DBSession).filter(DBSession.session_id == session_identifier).first()
+            if not db_session and session_identifier:
+                db_session = db.query(DBSession).filter(DBSession.thread_id == session_identifier).first()
+            if db_session:
+                session = db_session.to_dict()
+        except Exception as e:
+            logger.error(f"Failed to lookup session by session_id/thread_id: {e}")
+    
     if not session:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Session not found",
         )
 
+    messages = deduplicate_messages(session.get("messages", []))
     return TranscriptDetail(
-        thread_id=session.get("thread_id", ""),
+        thread_id=session.get("thread_id", "") or session_identifier,
         user_id=session.get("user_id", ""),
         policy_id=session.get("policy_id"),
-        messages=session.get("messages", []),
+        messages=messages,
         created_at=session.get("created_at", ""),
     )
 

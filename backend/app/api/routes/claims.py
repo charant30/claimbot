@@ -20,7 +20,7 @@ router = APIRouter()
 # Request/Response schemas
 class CreateClaimRequest(BaseModel):
     policy_id: str
-    claim_type: str  # "incident" or "medical"
+    claim_type: str  # "incident"
     incident_date: str
     metadata: Dict[str, Any] = {}
 
@@ -86,7 +86,7 @@ class ClaimResponse(BaseModel):
 
 def generate_claim_number(claim_type: ClaimType) -> str:
     """Generate a unique claim number."""
-    prefix = "INC" if claim_type == ClaimType.INCIDENT else "MED"
+    prefix = "INC"
     random_part = str(uuid_lib.uuid4())[:8].upper()
     return f"{prefix}-{random_part}"
 
@@ -97,7 +97,7 @@ async def create_claim(
     user_id: str = Depends(get_current_user_id),
     db: Session = Depends(get_db),
 ):
-    """Create a new claim (FNOL or medical intake)."""
+    """Create a new claim (FNOL)."""
     # Validate policy ownership
     policy = db.query(Policy).filter(
         Policy.policy_id == request.policy_id,

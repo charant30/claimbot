@@ -16,15 +16,6 @@ DEFAULT_DOCUMENT_FLOWS = {
         "vandalism": ["police_report", "incident_photos", "repair_estimate"],
         "default": ["incident_photos", "repair_estimate"],
     },
-    "home": {
-        "fire": ["incident_photos", "fire_department_report", "repair_estimate"],
-        "water_damage": ["incident_photos", "repair_estimate"],
-        "theft": ["police_report", "incident_photos"],
-        "default": ["incident_photos", "repair_estimate"],
-    },
-    "medical": {
-        "default": ["eob", "invoice"],
-    },
 }
 
 # Default intents
@@ -33,25 +24,25 @@ DEFAULT_INTENTS = [
         "name": "file_claim",
         "display_name": "File a New Claim",
         "icon": "📝",
-        "applicable_products": ["auto", "home", "medical"],
+        "applicable_products": ["auto"],
     },
     {
         "name": "check_status",
         "display_name": "Check Claim Status",
         "icon": "🔍",
-        "applicable_products": ["auto", "home", "medical"],
+        "applicable_products": ["auto"],
     },
     {
         "name": "coverage_question",
         "display_name": "Coverage Questions",
         "icon": "❓",
-        "applicable_products": ["auto", "home", "medical"],
+        "applicable_products": ["auto"],
     },
     {
         "name": "billing",
         "display_name": "Billing Inquiry",
         "icon": "💵",
-        "applicable_products": ["auto", "home", "medical"],
+        "applicable_products": ["auto"],
     },
 ]
 
@@ -66,7 +57,7 @@ def get_document_flow_config(
 
     Args:
         db: Database session
-        product_line: Product line (auto, home, medical)
+        product_line: Product line (auto)
         incident_type: Optional incident type (collision, theft, fire, etc.)
 
     Returns:

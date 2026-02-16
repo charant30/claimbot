@@ -12,27 +12,43 @@ function ChatWidget() {
     const {
         isOpen, toggleChat, messages, isLoading, sendMessage,
         startSession, threadId, flowStage, selectProduct, selectIntent,
-        submitClaimForm, uploadDocument, claimId, documents, clearChat
+        submitClaimForm, uploadDocument, claimId, documents, clearChat,
+        isEscalated,
+        isSpecialistConnected,
+        policyId,
     } = useChatStore()
     const { isAuthenticated } = useAuthStore()
     const [input, setInput] = useState('')
     const [showGuestForm, setShowGuestForm] = useState(false)
     const [showMenu, setShowMenu] = useState(false)
     const messagesEndRef = useRef<HTMLDivElement>(null)
+    const isInitialScrollDoneRef = useRef(false)
+    const lastThreadIdRef = useRef<string | null>(null)
 
     useEffect(() => {
+        if (threadId !== lastThreadIdRef.current) {
+            lastThreadIdRef.current = threadId
+            isInitialScrollDoneRef.current = false
+        }
+    }, [threadId])
+
+    // Scroll to bottom only on initial load (once messages exist), not on every state update
+    useEffect(() => {
+        if (isInitialScrollDoneRef.current || !messages.length) return
+        isInitialScrollDoneRef.current = true
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-    }, [messages])
+    }, [messages.length])
 
     const handleOpen = async () => {
-        toggleChat()
-        if (!isOpen && !threadId) {
+        const wasClosed = !isOpen
+        if (wasClosed && !threadId) {
             if (isAuthenticated) {
-                await startSession()
+                await startSession(policyId ?? undefined)
             } else {
                 setShowGuestForm(true)
             }
         }
+        toggleChat()
     }
 
     const handleGuestSubmit = async () => {
@@ -47,6 +63,7 @@ function ChatWidget() {
         const message = input.trim()
         setInput('')
         await sendMessage(message)
+        requestAnimationFrame(() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }))
     }
 
     const handleProductSelect = (productId: string) => {
@@ -224,6 +241,20 @@ function ChatWidget() {
                             <div ref={messagesEndRef} />
                         </div>
 
+                        {/* Only show when a specialist has actually joined and sent a message */}
+                        {isSpecialistConnected && (
+                            <div style={{
+                                padding: '8px 16px',
+                                background: '#eff6ff',
+                                borderTop: '1px solid #bfdbfe',
+                                fontSize: '13px',
+                                color: '#1e40af',
+                                textAlign: 'center',
+                            }}>
+                                Connected to a specialist. Your messages are being delivered.
+                            </div>
+                        )}
+
                         {/* Only show input when in conversation mode */}
                         {(flowStage === 'conversation' || flowStage === 'document_upload') && (
                             <form className="chat-input-form" onSubmit={handleSubmit}>
@@ -231,7 +262,7 @@ function ChatWidget() {
                                     type="text"
                                     value={input}
                                     onChange={(e) => setInput(e.target.value)}
-                                    placeholder="Type your message..."
+                                    placeholder={isEscalated ? "Message the specialist..." : "Type your message..."}
                                     className="chat-input"
                                     disabled={isLoading}
                                 />

@@ -229,10 +229,6 @@ function DashboardPage() {
                         <span className="link-icon">🔀</span>
                         <span>Manage Flows</span>
                     </a>
-                    <a href="/audit-logs" className="link-card">
-                        <span className="link-icon">📋</span>
-                        <span>View Audit Logs</span>
-                    </a>
                     <a href="/transcripts" className="link-card">
                         <span className="link-icon">💬</span>
                         <span>View Transcripts</span>

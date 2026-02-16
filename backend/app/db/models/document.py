@@ -16,8 +16,7 @@ class DocumentType(str, PyEnum):
     PHOTO = "photo"
     INCIDENT_PHOTOS = "incident_photos"
     POLICE_REPORT = "police_report"
-    MEDICAL_RECORD = "medical_record"
-    EOB = "eob"  # Explanation of Benefits
+    MEDICAL_RECORD = "medical_record"  # For auto injury claims
     INVOICE = "invoice"
     ESTIMATE = "estimate"
     OTHER = "other"

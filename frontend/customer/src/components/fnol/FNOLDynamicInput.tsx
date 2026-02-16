@@ -122,10 +122,31 @@ export const FNOLDynamicInput: React.FC<FNOLDynamicInputProps> = ({
                             value={currentMessage}
                             onChange={(e) => setCurrentMessage(e.target.value)}
                             disabled={isLoading}
+                            max={new Date().toISOString().split('T')[0]}
                             className="date-input"
                             aria-label="Select date"
                         />
                         <button type="submit" disabled={!currentMessage || isLoading} className="submit-button" aria-label="Continue with selected date">
+                            Continue
+                        </button>
+                    </form>
+                )
+
+            case 'datetime':
+                return (
+                    <form onSubmit={handleTextSubmit} className="text-input-form" aria-label="Date and time selection">
+                        <div className="datetime-input-wrapper">
+                            <input
+                                type="datetime-local"
+                                value={currentMessage}
+                                onChange={(e) => setCurrentMessage(e.target.value)}
+                                disabled={isLoading}
+                                max={new Date().toISOString().slice(0, 16)}
+                                className="datetime-input"
+                                aria-label="Select date and time"
+                            />
+                        </div>
+                        <button type="submit" disabled={!currentMessage || isLoading} className="submit-button" aria-label="Continue with selected date and time">
                             Continue
                         </button>
                     </form>
@@ -341,9 +362,15 @@ export const FNOLDynamicInput: React.FC<FNOLDynamicInputProps> = ({
                     gap: 8px;
                 }
 
+                .datetime-input-wrapper {
+                    flex: 1;
+                    display: flex;
+                }
+
                 .text-input,
                 .date-input,
-                .time-input {
+                .time-input,
+                .datetime-input {
                     flex: 1;
                     padding: 12px 16px;
                     border: 2px solid #e2e8f0;
@@ -355,7 +382,8 @@ export const FNOLDynamicInput: React.FC<FNOLDynamicInputProps> = ({
 
                 .text-input:focus,
                 .date-input:focus,
-                .time-input:focus {
+                .time-input:focus,
+                .datetime-input:focus {
                     border-color: #0066cc;
                 }
 

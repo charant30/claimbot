@@ -32,7 +32,7 @@ class Case(Base):
     __tablename__ = "cases"
 
     case_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    claim_id = Column(UUID(as_uuid=True), ForeignKey("claims.claim_id"), nullable=False)
+    claim_id = Column(UUID(as_uuid=True), ForeignKey("claims.claim_id"), nullable=True)
     chat_thread_id = Column(String(100), nullable=False, index=True)
     status = Column(Enum(CaseStatus), default=CaseStatus.AI_HANDLING, nullable=False)
     stage = Column(String(100), default="intake")  # e.g., intake, review, decision

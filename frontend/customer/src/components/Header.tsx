@@ -35,10 +35,7 @@ function Header() {
                             </div>
                         </>
                     ) : (
-                        <>
-                            <Link to="/login" className="btn btn-secondary">Login</Link>
-                            <Link to="/login?mode=signup" className="btn btn-primary">Sign Up</Link>
-                        </>
+                        <Link to="/login" className="btn btn-primary">Login</Link>
                     )}
                 </nav>
             </div>

@@ -16,7 +16,7 @@ class DocumentFlowConfig(Base):
     __tablename__ = "document_flow_configs"
 
     config_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    product_line = Column(String(50), nullable=False, index=True)  # auto, home, medical
+    product_line = Column(String(50), nullable=False, index=True)  # auto
     incident_type = Column(String(50), nullable=True, index=True)  # collision, theft, fire, etc.
 
     # Ordered list of required document types
@@ -67,7 +67,7 @@ class IntentConfig(Base):
     description = Column(Text, nullable=True)
 
     # Product lines this intent applies to (null = all)
-    applicable_products = Column(JSON, nullable=True)  # e.g., ["auto", "home"]
+    applicable_products = Column(JSON, nullable=True)  # e.g., ["auto"]
 
     # Keywords/phrases that trigger this intent
     trigger_phrases = Column(JSON, nullable=True, default=list)

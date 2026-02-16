@@ -11,9 +11,9 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.db import get_db
-from app.db.models import Case, CaseAudit, CaseStatus, ActorType, Claim, Document, Policy
+from app.db.models import Case, CaseAudit, CaseStatus, ActorType, Claim, Document, Policy, User
 from app.core import get_current_user_id, require_role, logger, log_audit_event
-from app.services.session_store import get_session_store
+from app.services.session_store import get_session_store, deduplicate_messages
 from app.services.document_integration import get_documents_for_claim
 
 router = APIRouter()
@@ -56,7 +56,7 @@ class CaseMessageResponse(BaseModel):
 
 class CaseResponse(BaseModel):
     case_id: str
-    claim_id: str
+    claim_id: Optional[str]
     thread_id: str
     status: str
     stage: str
@@ -75,7 +75,7 @@ def case_to_response(case: Case) -> CaseResponse:
     """Convert Case model to CaseResponse."""
     return CaseResponse(
         case_id=str(case.case_id),
-        claim_id=str(case.claim_id),
+        claim_id=str(case.claim_id) if case.claim_id else None,
         thread_id=case.chat_thread_id,
         status=case.status.value,
         stage=case.stage,
@@ -220,12 +220,58 @@ async def create_handoff(
     return case_to_response(case)
 
 
+def _has_live_session(session_store, thread_id: str) -> bool:
+    """Return True if this thread has session data in the store (conversation or FNOL)."""
+    for key in [f"conversation_state:{thread_id}", f"fnol:{thread_id}", thread_id]:
+        if session_store.get(key):
+            return True
+    return False
+
+
+def _enrich_case_packet_for_queue(
+    case: Case,
+    session_store,
+    db: Session,
+) -> Dict[str, Any]:
+    """Enrich case_packet with customer name/email and policy_number from session or DB when missing."""
+    packet = dict(case.case_packet or {})
+    session, _ = _find_session_for_thread(session_store, case.chat_thread_id)
+
+    # Customer name/email from User when missing
+    if not (packet.get("first_name") or packet.get("email")):
+        user_id = packet.get("user_id") or (session.get("user_id") if session else None)
+        if user_id:
+            try:
+                user = db.query(User).filter(User.user_id == user_id).first()
+                if user:
+                    if not packet.get("first_name"):
+                        packet["first_name"] = user.name or ""
+                        packet["last_name"] = ""
+                    if not packet.get("email"):
+                        packet["email"] = user.email or ""
+            except Exception as e:
+                logger.warning(f"Could not enrich case_packet for user {user_id}: {e}")
+
+    # Policy number from Policy when missing (e.g. inquiry/billing chat)
+    if not packet.get("policy_number"):
+        policy_id = packet.get("policy_id") or (session.get("policy_id") if session else None)
+        if policy_id:
+            try:
+                policy = db.query(Policy).filter(Policy.policy_id == policy_id).first()
+                if policy:
+                    packet["policy_number"] = policy.policy_number
+            except Exception as e:
+                logger.warning(f"Could not enrich case_packet policy for {policy_id}: {e}")
+
+    return packet
+
+
 @router.get("/queue", response_model=List[CaseResponse])
 async def get_escalation_queue(
     payload: dict = Depends(require_role(["celest", "admin"])),
     db: Session = Depends(get_db),
 ):
-    """Get all escalated cases (Celest queue)."""
+    """Get escalated cases that have a live session only (no stale/orphaned cases)."""
     cases = (
         db.query(Case)
         .filter(Case.status.in_([CaseStatus.ESCALATED, CaseStatus.AGENT_HANDLING]))
@@ -233,7 +279,32 @@ async def get_escalation_queue(
         .all()
     )
 
-    return [case_to_response(c) for c in cases]
+    session_store = get_session_store()
+    # Only return cases whose thread still has session data (live sessions)
+    live_cases = [c for c in cases if _has_live_session(session_store, c.chat_thread_id)]
+
+    return [_case_response_with_enriched_packet(c, session_store, db) for c in live_cases]
+
+
+def _case_response_with_enriched_packet(case: Case, session_store, db: Session) -> CaseResponse:
+    """Build CaseResponse with case_packet enriched (name, email, policy_number) for detail/queue views."""
+    base = case_to_response(case)
+    packet = _enrich_case_packet_for_queue(case, session_store, db)
+    return CaseResponse(
+        case_id=base.case_id,
+        claim_id=base.claim_id,
+        thread_id=base.thread_id,
+        status=base.status,
+        stage=base.stage,
+        priority=base.priority,
+        assigned_to=base.assigned_to,
+        case_packet=packet,
+        created_at=base.created_at,
+        sla_due_at=base.sla_due_at,
+        locked_by=base.locked_by,
+        locked_at=base.locked_at,
+        is_locked=base.is_locked,
+    )
 
 
 @router.get("/{case_id}", response_model=CaseResponse)
@@ -244,8 +315,8 @@ async def get_case(
 ):
     """Get case details."""
     case = _get_case_or_404(db, case_id)
-
-    return case_to_response(case)
+    session_store = get_session_store()
+    return _case_response_with_enriched_packet(case, session_store, db)
 
 
 @router.get("/case/{case_id}", response_model=CaseResponse)
@@ -256,7 +327,8 @@ async def get_case_alias(
 ):
     """Get case details (alias for frontend)."""
     case = _get_case_or_404(db, case_id)
-    return case_to_response(case)
+    session_store = get_session_store()
+    return _case_response_with_enriched_packet(case, session_store, db)
 
 
 @router.post("/{case_id}/lock")
@@ -519,6 +591,28 @@ async def takeover_chat_alias(
     }
 
 
+def _find_session_for_thread(session_store, thread_id: str):
+    """
+    Try all known session key patterns to find the session for a thread.
+    Returns (session_data, key_used) or (None, None).
+    """
+    keys_to_try = [
+        f"conversation_state:{thread_id}",
+        f"fnol:{thread_id}",
+        thread_id,
+    ]
+    for key in keys_to_try:
+        session = session_store.get(key)
+        if session and session.get("messages"):
+            return session, key
+    # Try again without messages check (session might exist but be empty)
+    for key in keys_to_try:
+        session = session_store.get(key)
+        if session:
+            return session, key
+    return None, None
+
+
 @router.get("/case/{case_id}/messages", response_model=List[CaseMessageResponse])
 async def get_case_messages(
     case_id: UUID,
@@ -529,15 +623,12 @@ async def get_case_messages(
     case = _get_case_or_404(db, case_id)
     session_store = get_session_store()
     
-    # Try FNOL session first, then standard chat session
-    fnol_key = f"fnol:{case.chat_thread_id}"
-    session = session_store.get(fnol_key)
-    if not session:
-        session = session_store.get(case.chat_thread_id)
+    session, key_used = _find_session_for_thread(session_store, case.chat_thread_id)
         
     if not session:
         return []
 
+    messages = deduplicate_messages(session.get("messages", []))
     return [
         CaseMessageResponse(
             role=msg.get("role", "assistant"),
@@ -545,7 +636,7 @@ async def get_case_messages(
             created_at=msg.get("created_at", ""),
             metadata=msg.get("metadata", {}),
         )
-        for msg in session.get("messages", [])
+        for msg in messages
     ]
 
 
@@ -563,17 +654,12 @@ async def send_case_message(
 
     session_store = get_session_store()
     
-    # Try FNOL session first, then standard chat session
-    fnol_key = f"fnol:{case.chat_thread_id}"
-    session = session_store.get(fnol_key)
-    final_key = fnol_key
-    
-    if not session:
-        final_key = case.chat_thread_id
-        session = session_store.get(final_key)
+    # Find the session using all possible key patterns
+    session, final_key = _find_session_for_thread(session_store, case.chat_thread_id)
         
     if not session:
-        # Create new standard session if none exists
+        # Create new session under conversation_state key (same as chat service)
+        final_key = f"conversation_state:{case.chat_thread_id}"
         session = {
             "thread_id": case.chat_thread_id,
             "messages": [],
@@ -795,7 +881,7 @@ async def get_case_full_details(
             "claim_type": claim.claim_type,
             "status": claim.status.value if hasattr(claim.status, 'value') else str(claim.status),
             "incident_date": claim.incident_date.isoformat() if claim.incident_date else None,
-            "metadata": claim.metadata or {},
+            "metadata": claim.claim_metadata or {},
             "timeline": claim.timeline or [],
         }
 

@@ -3,7 +3,7 @@ INCIDENT_CORE State Handler
 
 Collects basic incident information:
 1. Loss type (collision, theft, weather, etc.)
-2. Date and time of incident
+2. Date and time of incident (combined in one question)
 3. Location
 4. Brief description/narrative
 
@@ -91,27 +91,27 @@ def incident_core_node(state: FNOLConversationState) -> FNOLConversationState:
             data_after=loss_type,
         )
 
-        state["state_step"] = "awaiting_date"
+        state["state_step"] = "awaiting_datetime"
         return set_response(
             state,
-            response="When did this incident occur? Please provide the date.",
-            pending_question="incident_date",
-            pending_field="incident.date",
-            input_type="date",
+            response="When did this incident occur? Please provide the date and time.",
+            pending_question="incident_datetime",
+            pending_field="incident.datetime",
+            input_type="datetime",
         )
 
-    # Step 3: Handle date input
-    if step == "awaiting_date":
-        parsed_date, is_approximate = parse_date(user_input)
+    # Step 3: Handle date and time input (combined)
+    if step == "awaiting_datetime":
+        parsed_date, parsed_time, is_approximate = parse_datetime(user_input)
 
         if not parsed_date:
             return set_response(
                 state,
-                response="I couldn't understand that date. Please enter the date (for example: January 15, 2024 or 01/15/2024).",
-                pending_question="incident_date",
-                pending_field="incident.date",
-                input_type="date",
-                validation_errors=["Please enter a valid date"],
+                response="Please enter a valid date and time. You can use the date/time picker or type it (e.g., '2024-01-15 2:30 PM').",
+                pending_question="incident_datetime",
+                pending_field="incident.datetime",
+                input_type="datetime",
+                validation_errors=["Please enter a valid date and time"],
             )
 
         # Validate date is not in future
@@ -119,50 +119,24 @@ def incident_core_node(state: FNOLConversationState) -> FNOLConversationState:
             return set_response(
                 state,
                 response="The date cannot be in the future. When did the incident occur?",
-                pending_question="incident_date",
-                pending_field="incident.date",
-                input_type="date",
+                pending_question="incident_datetime",
+                pending_field="incident.datetime",
+                input_type="datetime",
                 validation_errors=["Date cannot be in the future"],
             )
 
         incident["date"] = parsed_date.isoformat()
+        incident["time"] = parsed_time
         incident["time_approximate"] = is_approximate
         state["incident"] = incident
 
         state = add_audit_event(
             state,
-            action="incident_date_set",
+            action="incident_datetime_set",
             actor="user",
             field_changed="incident.date",
-            data_after=parsed_date.isoformat(),
+            data_after=f"{parsed_date.isoformat()} {parsed_time or 'time unknown'}",
         )
-
-        state["state_step"] = "awaiting_time"
-        return set_response(
-            state,
-            response="What time did it happen? (If you're not sure of the exact time, an approximate time is fine.)",
-            pending_question="incident_time",
-            pending_field="incident.time",
-            input_type="text",
-            allow_skip=True,
-        )
-
-    # Step 4: Handle time input
-    if step == "awaiting_time":
-        # Allow skipping
-        if user_input.lower() in ["skip", "not sure", "don't know", "unknown", "i don't know"]:
-            incident["time"] = None
-            incident["time_approximate"] = True
-        else:
-            parsed_time, is_approximate = parse_time(user_input)
-            if parsed_time:
-                incident["time"] = parsed_time
-                incident["time_approximate"] = is_approximate
-            else:
-                incident["time"] = None
-                incident["time_approximate"] = True
-
-        state["incident"] = incident
 
         state["state_step"] = "awaiting_location"
         return set_response(
@@ -404,6 +378,69 @@ def extract_loss_type(text: str) -> Optional[str]:
             return option["value"]
 
     return None
+
+
+def parse_datetime(text: str) -> tuple[Optional[date], Optional[str], bool]:
+    """
+    Parse date and time from user input.
+    Returns (date, time_string, is_approximate).
+    
+    Handles:
+    - datetime-local format: "2024-01-15T14:30"
+    - Natural text: "January 15, 2024 at 2:30 PM"
+    - Date only: "2024-01-15" (time will be None)
+    - Relative: "today at 3pm", "yesterday morning"
+    """
+    text_lower = text.lower().strip()
+    is_approximate = any(word in text_lower for word in ["around", "about", "approximately", "roughly"])
+    
+    # Try to extract datetime-local format first (from frontend picker)
+    import re
+    datetime_pattern = r'(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})'
+    match = re.search(datetime_pattern, text)
+    if match:
+        date_str = match.group(1)
+        time_str = match.group(2)
+        try:
+            parsed_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+            return parsed_date, time_str, False
+        except ValueError:
+            pass
+    
+    # Split on common time separators
+    time_part = None
+    date_part = text
+    
+    # Look for time indicators
+    time_match = re.search(r'(?:at|@)?\s*(\d{1,2}(?::\d{2})?\s*(?:am|pm|a\.m\.|p\.m\.))', text_lower)
+    if time_match:
+        time_text = time_match.group(1).strip()
+        parsed_time, time_approx = parse_time(time_text)
+        if parsed_time:
+            time_part = parsed_time
+            is_approximate = is_approximate or time_approx
+            # Remove time portion from date text
+            date_part = text[:time_match.start()] + text[time_match.end():]
+    
+    # Parse the date portion
+    parsed_date, date_approx = parse_date(date_part.strip())
+    is_approximate = is_approximate or date_approx
+    
+    # If we didn't get time from above, try to extract it from common words
+    if not time_part and parsed_date:
+        time_mappings = {
+            "morning": "09:00",
+            "afternoon": "14:00",
+            "evening": "18:00",
+            "night": "21:00",
+        }
+        for desc, time_val in time_mappings.items():
+            if desc in text_lower:
+                time_part = time_val
+                is_approximate = True
+                break
+    
+    return parsed_date, time_part, is_approximate
 
 
 def parse_date(text: str) -> tuple[Optional[date], bool]:

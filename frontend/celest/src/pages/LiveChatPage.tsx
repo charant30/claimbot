@@ -21,55 +21,51 @@ function LiveChatPage() {
     const [loading, setLoading] = useState(true)
     const [sending, setSending] = useState(false)
     const messagesEndRef = useRef<HTMLDivElement>(null)
+    const isInitialLoadRef = useRef(true)
 
-    useEffect(() => {
-        const fetchMessages = async () => {
-            try {
-                const data: any[] = await handoffApi.getMessages(caseId!)
-                const mappedMessages: Message[] = data.map((msg, index) => ({
-                    id: msg.message_id || `msg-${index}-${Date.now()}`,
-                    role: msg.role as 'user' | 'agent' | 'ai',
-                    content: msg.content,
-                    sender_name: msg.role === 'user' ? 'Customer' : msg.role === 'agent' ? 'Agent' : 'ClaimBot AI',
-                    timestamp: msg.created_at || new Date().toISOString()
-                }))
-                setMessages(mappedMessages)
-            } catch (error) {
-                console.error('Failed to fetch messages:', error)
-                // Mock data fallback
-                setMessages([
-                    {
-                        id: '1',
-                        role: 'user',
-                        content: "I need to file a claim for a car accident.",
-                        sender_name: 'Alice Johnson',
-                        timestamp: new Date(Date.now() - 600000).toISOString(),
-                    },
-                    {
-                        id: '2',
-                        role: 'ai',
-                        content: "I'm sorry to hear about your accident. I'll help you file a claim. Can you tell me when and where the incident occurred?",
-                        sender_name: 'ClaimBot AI',
-                        timestamp: new Date(Date.now() - 540000).toISOString(),
-                    },
-                    {
-                        id: '3',
-                        role: 'user',
-                        content: "It happened yesterday at 123 Main St. The damage looks pretty bad.",
-                        sender_name: 'Alice Johnson',
-                        timestamp: new Date(Date.now() - 480000).toISOString(),
-                    },
-                ])
-            } finally {
-                setLoading(false)
-            }
+    const fetchMessages = async (isBackgroundRefresh = false) => {
+        try {
+            const data: any[] = await handoffApi.getMessages(caseId!)
+            const mappedMessages: Message[] = data.map((msg, index) => ({
+                id: msg.message_id || `msg-${index}-${msg.created_at || ''}`,
+                role: msg.role as 'user' | 'agent' | 'ai',
+                content: msg.content,
+                sender_name: msg.role === 'user' ? 'Customer' : msg.role === 'agent' ? 'Agent' : 'ClaimBot AI',
+                timestamp: msg.created_at || new Date().toISOString()
+            }))
+
+            setMessages((prev) => {
+                if (isBackgroundRefresh && prev.length > 0) {
+                    const sameLength = mappedMessages.length === prev.length
+                    const sameIds = sameLength && mappedMessages.every((m, i) => prev[i]?.id === m.id)
+                    const sameContent = sameLength && mappedMessages.every((m, i) => prev[i]?.content === m.content)
+                    if (sameIds && sameContent) return prev
+                    if (mappedMessages.length < prev.length) return prev
+                }
+                return mappedMessages
+            })
+        } catch (error) {
+            console.error('Failed to fetch messages:', error)
+        } finally {
+            setLoading(false)
         }
-        fetchMessages()
+    }
+
+    // Initial fetch then poll in background without replacing state if unchanged
+    useEffect(() => {
+        isInitialLoadRef.current = true
+        fetchMessages(false)
+        const interval = setInterval(() => fetchMessages(true), 3000)
+        return () => clearInterval(interval)
     }, [caseId])
 
+    // Scroll to bottom only on initial load or when user sends a message (handled after send)
     useEffect(() => {
+        if (!isInitialLoadRef.current) return
+        if (loading) return
+        isInitialLoadRef.current = false
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-    }, [messages])
+    }, [loading, messages.length])
 
     const handleSend = async (e: React.FormEvent) => {
         e.preventDefault()
@@ -88,6 +84,7 @@ function LiveChatPage() {
             timestamp: new Date().toISOString(),
         }
         setMessages((prev) => [...prev, newMessage])
+        requestAnimationFrame(() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }))
 
         try {
             await handoffApi.sendMessage(caseId!, content)

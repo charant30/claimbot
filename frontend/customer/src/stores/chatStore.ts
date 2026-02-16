@@ -43,6 +43,11 @@ interface ChatState {
     productLine: string | null
     intent: string | null
 
+    // Escalation state
+    isEscalated: boolean
+    isSpecialistConnected: boolean  // true only after we've received at least one agent message
+    pollingInterval: ReturnType<typeof setInterval> | null
+
     toggleChat: () => void
     openChat: () => void
     closeChat: () => void
@@ -54,12 +59,12 @@ interface ChatState {
     uploadDocument: (docType: string, file: File) => Promise<void>
     clearChat: () => void
     setPolicyId: (policyId: string | null) => void
+    startEscalationPolling: () => void
+    stopEscalationPolling: () => void
 }
 
 const PRODUCT_OPTIONS = [
     { id: 'auto', icon: '🚗', label: 'Auto Insurance' },
-    { id: 'home', icon: '🏠', label: 'Home Insurance' },
-    { id: 'medical', icon: '🏥', label: 'Medical Insurance' },
 ]
 
 const INTENT_OPTIONS = [
@@ -83,6 +88,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
     flowStage: 'product_selection',
     productLine: null,
     intent: null,
+    isEscalated: false,
+    isSpecialistConnected: false,
+    pollingInterval: null,
 
     toggleChat: () => set((state) => ({ isOpen: !state.isOpen })),
     openChat: () => set({ isOpen: true }),
@@ -201,6 +209,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
                 isLoading: false,
                 flowStage: intent === 'file_claim' ? 'claim_form' : 'conversation',
             }))
+
+            // If the response indicates escalation, start polling for agent messages
+            if (response.metadata?.should_escalate) {
+                set({ isEscalated: true })
+                get().startEscalationPolling()
+            }
         } catch (error) {
             console.error('Failed to send intent:', error)
             set((state) => ({
@@ -451,18 +465,29 @@ export const useChatStore = create<ChatState>((set, get) => ({
                 { ...metadata, product_line: productLine, intent }
             )
 
-            const assistantMessage: Message = {
-                id: response.message_id,
-                role: 'assistant',
-                content: response.content,
-                timestamp: new Date(),
-                metadata: response.metadata,
+            // Only add the AI response if it has content (during escalation, response may be empty)
+            if (response.content && response.content.trim()) {
+                const assistantMessage: Message = {
+                    id: response.message_id,
+                    role: 'assistant',
+                    content: response.content,
+                    timestamp: new Date(),
+                    metadata: response.metadata,
+                }
+
+                set((state) => ({
+                    messages: [...state.messages, assistantMessage],
+                    isLoading: false,
+                }))
+            } else {
+                set({ isLoading: false })
             }
 
-            set((state) => ({
-                messages: [...state.messages, assistantMessage],
-                isLoading: false,
-            }))
+            // If the response indicates escalation, start polling for agent messages
+            if (response.metadata?.should_escalate) {
+                set({ isEscalated: true })
+                get().startEscalationPolling()
+            }
         } catch (error) {
             console.error('Failed to send message:', error)
 
@@ -480,17 +505,70 @@ export const useChatStore = create<ChatState>((set, get) => ({
         }
     },
 
-    clearChat: () => set({
-        threadId: null,
-        messages: [],
-        policyId: null,
-        claimId: null,
-        claimNumber: null,
-        documents: [],
-        flowStage: 'product_selection',
-        productLine: null,
-        intent: null,
-    }),
+    startEscalationPolling: () => {
+        const { pollingInterval, threadId } = get()
+        if (pollingInterval) return // Already polling
+
+        const interval = setInterval(async () => {
+            const currentThreadId = get().threadId
+            if (!currentThreadId) return
+
+            try {
+                const serverMessages = await chatApi.getMessages(currentThreadId)
+                if (!serverMessages || !Array.isArray(serverMessages)) return
+
+                // Find new agent messages that we don't have yet
+                const existingIds = new Set(get().messages.map(m => m.id))
+                const newAgentMessages = serverMessages
+                    .filter((msg: any) => msg.role === 'agent' && !existingIds.has(msg.message_id || `agent-${msg.created_at}`))
+                    .map((msg: any) => ({
+                        id: msg.message_id || `agent-${msg.created_at}-${Date.now()}`,
+                        role: 'assistant' as const,
+                        content: msg.content,
+                        timestamp: new Date(msg.created_at || Date.now()),
+                        metadata: { ...msg.metadata, fromAgent: true },
+                    }))
+
+                if (newAgentMessages.length > 0) {
+                    set((state) => ({
+                        messages: [...state.messages, ...newAgentMessages],
+                        isSpecialistConnected: true,
+                    }))
+                }
+            } catch (error) {
+                console.error('Escalation polling error:', error)
+            }
+        }, 3000)
+
+        set({ pollingInterval: interval })
+    },
+
+    stopEscalationPolling: () => {
+        const { pollingInterval } = get()
+        if (pollingInterval) {
+            clearInterval(pollingInterval)
+            set({ pollingInterval: null })
+        }
+    },
+
+    clearChat: () => {
+        const { pollingInterval } = get()
+        if (pollingInterval) clearInterval(pollingInterval)
+        set({
+            threadId: null,
+            messages: [],
+            policyId: null,
+            claimId: null,
+            claimNumber: null,
+            documents: [],
+            flowStage: 'product_selection',
+            productLine: null,
+            intent: null,
+            isEscalated: false,
+            isSpecialistConnected: false,
+            pollingInterval: null,
+        })
+    },
 
     setPolicyId: (policyId: string | null) => set({ policyId }),
 }))

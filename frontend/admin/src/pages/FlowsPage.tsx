@@ -3,20 +3,6 @@ import { adminApi } from '../services/api'
 import './FlowsPage.css'
 
 // Types
-interface Intent {
-    intent_id?: string
-    name: string
-    display_name: string
-    description?: string
-    applicable_products?: string[]
-    trigger_phrases?: string[]
-    required_fields?: string[]
-    flow_config?: Record<string, unknown>
-    icon?: string
-    is_active?: boolean
-    priority?: number
-}
-
 interface FlowRule {
     rule_id?: string
     name: string
@@ -43,22 +29,19 @@ interface FlowSettings {
     auto_approval_limit: number
 }
 
-type TabType = 'intents' | 'document-flows' | 'flow-rules'
+type TabType = 'document-flows' | 'flow-rules'
 
-const PRODUCT_LINES = ['auto', 'home', 'medical']
+const PRODUCT_LINES = ['auto']
 const DOCUMENT_TYPES = [
     'police_report',
     'incident_photos',
     'repair_estimate',
     'invoice',
-    'eob',
-    'fire_department_report',
     'medical_records',
 ]
 
 function FlowsPage() {
-    const [activeTab, setActiveTab] = useState<TabType>('intents')
-    const [intents, setIntents] = useState<Intent[]>([])
+    const [activeTab, setActiveTab] = useState<TabType>('document-flows')
     const [flowRules, setFlowRules] = useState<FlowRule[]>([])
     const [documentFlows, setDocumentFlows] = useState<DocumentFlow[]>([])
     const [flowSettings, setFlowSettings] = useState<FlowSettings>({
@@ -72,7 +55,7 @@ function FlowsPage() {
     // Modal state
     const [showModal, setShowModal] = useState(false)
     const [modalMode, setModalMode] = useState<'create' | 'edit'>('create')
-    const [editingItem, setEditingItem] = useState<Intent | FlowRule | DocumentFlow | null>(null)
+    const [editingItem, setEditingItem] = useState<FlowRule | DocumentFlow | null>(null)
 
     useEffect(() => {
         fetchData()
@@ -82,12 +65,10 @@ function FlowsPage() {
         setLoading(true)
         setError(null)
         try {
-            const [intentsData, flowsData, docFlowsData] = await Promise.all([
-                adminApi.getIntents(),
+            const [flowsData, docFlowsData] = await Promise.all([
                 adminApi.getFlows(),
                 adminApi.getDocumentFlows(),
             ])
-            setIntents(intentsData.intents || [])
             setFlowRules(flowsData.rules || [])
             setFlowSettings(flowsData.settings || { confidence_threshold: 0.7, auto_approval_limit: 5000 })
             setDocumentFlows(docFlowsData.document_flows || [])
@@ -117,19 +98,17 @@ function FlowsPage() {
         setShowModal(true)
     }
 
-    const openEditModal = (item: Intent | FlowRule | DocumentFlow) => {
+    const openEditModal = (item: FlowRule | DocumentFlow) => {
         setModalMode('edit')
         setEditingItem(item)
         setShowModal(true)
     }
 
-    const handleDelete = async (item: Intent | FlowRule | DocumentFlow) => {
+    const handleDelete = async (item: FlowRule | DocumentFlow) => {
         if (!confirm('Are you sure you want to delete this item?')) return
 
         try {
-            if (activeTab === 'intents' && 'intent_id' in item && item.intent_id) {
-                await adminApi.deleteIntent(item.intent_id)
-            } else if (activeTab === 'flow-rules' && 'rule_id' in item && item.rule_id) {
+            if (activeTab === 'flow-rules' && 'rule_id' in item && item.rule_id) {
                 await adminApi.deleteFlowRule(item.rule_id)
             } else if (activeTab === 'document-flows' && 'config_id' in item && item.config_id) {
                 await adminApi.deleteDocumentFlow(item.config_id)
@@ -148,8 +127,8 @@ function FlowsPage() {
     return (
         <div className="flows-page">
             <div className="page-header">
-                <h1>Flows & Intents</h1>
-                <p>Configure chat intents, document flows, and routing rules</p>
+                <h1>Flows</h1>
+                <p>Configure document flows and routing rules</p>
             </div>
 
             {error && (
@@ -161,12 +140,6 @@ function FlowsPage() {
 
             {/* Tabs */}
             <div className="tabs">
-                <button
-                    className={`tab ${activeTab === 'intents' ? 'active' : ''}`}
-                    onClick={() => setActiveTab('intents')}
-                >
-                    Intents ({intents.length})
-                </button>
                 <button
                     className={`tab ${activeTab === 'document-flows' ? 'active' : ''}`}
                     onClick={() => setActiveTab('document-flows')}
@@ -183,15 +156,6 @@ function FlowsPage() {
 
             {/* Tab Content */}
             <div className="tab-content">
-                {activeTab === 'intents' && (
-                    <IntentsTab
-                        intents={intents}
-                        onAdd={openCreateModal}
-                        onEdit={openEditModal}
-                        onDelete={handleDelete}
-                    />
-                )}
-
                 {activeTab === 'document-flows' && (
                     <DocumentFlowsTab
                         flows={documentFlows}
@@ -224,13 +188,7 @@ function FlowsPage() {
                     onClose={() => setShowModal(false)}
                     onSave={async (data) => {
                         try {
-                            if (activeTab === 'intents') {
-                                if (modalMode === 'create') {
-                                    await adminApi.createIntent(data as Intent)
-                                } else if (editingItem && 'intent_id' in editingItem && editingItem.intent_id) {
-                                    await adminApi.updateIntent(editingItem.intent_id, data)
-                                }
-                            } else if (activeTab === 'document-flows') {
+                            if (activeTab === 'document-flows') {
                                 if (modalMode === 'create') {
                                     await adminApi.createDocumentFlow(data as DocumentFlow)
                                 } else if (editingItem && 'config_id' in editingItem && editingItem.config_id) {
@@ -253,56 +211,6 @@ function FlowsPage() {
                 />
             )}
         </div>
-    )
-}
-
-// Intents Tab Component
-function IntentsTab({
-    intents,
-    onAdd,
-    onEdit,
-    onDelete,
-}: {
-    intents: Intent[]
-    onAdd: () => void
-    onEdit: (item: Intent) => void
-    onDelete: (item: Intent) => void
-}) {
-    return (
-        <section className="section">
-            <div className="section-header">
-                <h2>Configured Intents</h2>
-                <button className="btn-primary" onClick={onAdd}>
-                    + Add Intent
-                </button>
-            </div>
-            <div className="intents-grid">
-                {intents.map((intent, index) => (
-                    <div key={intent.intent_id || index} className="intent-card">
-                        <div className="card-header">
-                            <span className="icon">{intent.icon || '...'}</span>
-                            <h3>{intent.display_name || intent.name}</h3>
-                            <span className={`status-badge ${intent.is_active !== false ? 'active' : 'inactive'}`}>
-                                {intent.is_active !== false ? 'Active' : 'Inactive'}
-                            </span>
-                        </div>
-                        <p className="intent-name">ID: {intent.name}</p>
-                        <p className="description">{intent.description || 'No description'}</p>
-                        {intent.applicable_products && intent.applicable_products.length > 0 && (
-                            <div className="products">
-                                {intent.applicable_products.map((p) => (
-                                    <span key={p} className="product-tag">{p}</span>
-                                ))}
-                            </div>
-                        )}
-                        <div className="card-actions">
-                            <button onClick={() => onEdit(intent)}>Edit</button>
-                            <button className="btn-danger" onClick={() => onDelete(intent)}>Delete</button>
-                        </div>
-                    </div>
-                ))}
-            </div>
-        </section>
     )
 }
 
@@ -475,7 +383,7 @@ function Modal({
 }: {
     type: TabType
     mode: 'create' | 'edit'
-    item: Intent | FlowRule | DocumentFlow | null
+    item: FlowRule | DocumentFlow | null
     onClose: () => void
     onSave: (data: Record<string, unknown>) => void
 }) {
@@ -486,9 +394,7 @@ function Modal({
             setFormData(item)
         } else {
             // Default values for new items
-            if (type === 'intents') {
-                setFormData({ name: '', display_name: '', applicable_products: [], is_active: true })
-            } else if (type === 'document-flows') {
+            if (type === 'document-flows') {
                 setFormData({ product_line: 'auto', document_sequence: [] })
             } else {
                 setFormData({ name: '', conditions: {}, action: {}, priority: 0 })
@@ -509,9 +415,6 @@ function Modal({
                     <button className="close-btn" onClick={onClose}>x</button>
                 </div>
                 <form onSubmit={handleSubmit}>
-                    {type === 'intents' && (
-                        <IntentForm formData={formData} setFormData={setFormData} />
-                    )}
                     {type === 'document-flows' && (
                         <DocumentFlowForm formData={formData} setFormData={setFormData} />
                     )}
@@ -529,86 +432,6 @@ function Modal({
 }
 
 // Form Components
-function IntentForm({
-    formData,
-    setFormData,
-}: {
-    formData: Record<string, unknown>
-    setFormData: (data: Record<string, unknown>) => void
-}) {
-    return (
-        <div className="form-fields">
-            <label>
-                Name (ID)
-                <input
-                    type="text"
-                    value={(formData.name as string) || ''}
-                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                    required
-                    pattern="[a-z_]+"
-                    placeholder="e.g., file_claim"
-                />
-            </label>
-            <label>
-                Display Name
-                <input
-                    type="text"
-                    value={(formData.display_name as string) || ''}
-                    onChange={(e) => setFormData({ ...formData, display_name: e.target.value })}
-                    required
-                    placeholder="e.g., File a New Claim"
-                />
-            </label>
-            <label>
-                Icon (emoji)
-                <input
-                    type="text"
-                    value={(formData.icon as string) || ''}
-                    onChange={(e) => setFormData({ ...formData, icon: e.target.value })}
-                    placeholder="e.g., 📝"
-                />
-            </label>
-            <label>
-                Description
-                <textarea
-                    value={(formData.description as string) || ''}
-                    onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                    placeholder="Describe what this intent does..."
-                />
-            </label>
-            <label>
-                Applicable Products
-                <div className="checkbox-group">
-                    {PRODUCT_LINES.map((pl) => (
-                        <label key={pl} className="checkbox-label">
-                            <input
-                                type="checkbox"
-                                checked={((formData.applicable_products as string[]) || []).includes(pl)}
-                                onChange={(e) => {
-                                    const current = (formData.applicable_products as string[]) || []
-                                    const updated = e.target.checked
-                                        ? [...current, pl]
-                                        : current.filter((p) => p !== pl)
-                                    setFormData({ ...formData, applicable_products: updated })
-                                }}
-                            />
-                            {pl}
-                        </label>
-                    ))}
-                </div>
-            </label>
-            <label className="checkbox-label">
-                <input
-                    type="checkbox"
-                    checked={(formData.is_active as boolean) !== false}
-                    onChange={(e) => setFormData({ ...formData, is_active: e.target.checked })}
-                />
-                Active
-            </label>
-        </div>
-    )
-}
-
 function DocumentFlowForm({
     formData,
     setFormData,

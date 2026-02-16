@@ -11,13 +11,13 @@ class TestClaimsEndpoints:
     
     def test_get_my_claims_empty(self, client: TestClient, auth_headers):
         """Test getting claims when user has none."""
-        response = client.get("/claims/me", headers=auth_headers)
+        response = client.get("/claims/", headers=auth_headers)
         assert response.status_code == 200
         assert response.json() == []
     
     def test_get_my_claims(self, client: TestClient, auth_headers, test_claim):
         """Test getting user's claims."""
-        response = client.get("/claims/me", headers=auth_headers)
+        response = client.get("/claims/", headers=auth_headers)
         assert response.status_code == 200
         claims = response.json()
         assert len(claims) == 1
@@ -55,15 +55,17 @@ class TestClaimsEndpoints:
                 "policy_id": str(test_policy.policy_id),
                 "claim_type": "incident",
                 "incident_date": "2024-01-20",
-                "incident_description": "Fender bender in parking lot",
-                "loss_amount": 2500.00,
+                "metadata": {
+                    "description": "Fender bender in parking lot",
+                    "estimated_loss": 2500.00,
+                },
             }
         )
         assert response.status_code == 200
         claim = response.json()
         assert claim["status"] == "draft"
-        assert claim["loss_amount"] == 2500.00
         assert "claim_number" in claim
+        assert claim["metadata"].get("description") == "Fender bender in parking lot"
     
     def test_update_claim(self, client: TestClient, auth_headers, test_claim):
         """Test updating a claim."""
@@ -71,39 +73,12 @@ class TestClaimsEndpoints:
             f"/claims/{test_claim.claim_id}",
             headers=auth_headers,
             json={
-                "incident_description": "Updated description with more details",
+                "metadata": {"description": "Updated description with more details"},
             }
         )
         assert response.status_code == 200
         claim = response.json()
-        assert "Updated description" in claim["incident_description"]
-    
-    def test_submit_claim(self, client: TestClient, auth_headers, db, test_policy):
-        """Test submitting a draft claim."""
-        # First create a draft claim
-        from app.db.models import Claim
-        
-        draft_claim = Claim(
-            user_id=test_policy.user_id,
-            policy_id=test_policy.policy_id,
-            claim_number="CLM-2024-DRAFT01",
-            claim_type="incident",
-            incident_date="2024-01-20",
-            incident_description="Test draft",
-            status="draft",
-            loss_amount=1000.00,
-        )
-        db.add(draft_claim)
-        db.commit()
-        db.refresh(draft_claim)
-        
-        # Submit it
-        response = client.post(
-            f"/claims/{draft_claim.claim_id}/submit",
-            headers=auth_headers,
-        )
-        assert response.status_code == 200
-        assert response.json()["status"] == "submitted"
+        assert "Updated description" in (claim["metadata"] or {}).get("description", "")
 
 
 class TestClaimsAuthorization:
@@ -113,31 +88,28 @@ class TestClaimsAuthorization:
         self, client: TestClient, auth_headers, db, test_admin
     ):
         """Test that users cannot access other users' claims."""
-        # Create a claim for admin user
-        from app.db.models import Policy, Claim
+        from app.db.models import Policy, PolicyStatus, Claim, ClaimType, ClaimStatus
         
         admin_policy = Policy(
             user_id=test_admin.user_id,
             policy_number="ADMIN-2024-001",
-            product_type="home",
+            product_type="auto",
             effective_date="2024-01-01",
             expiration_date="2025-01-01",
-            status="active",
-            is_active=True,
+            status=PolicyStatus.ACTIVE,
         )
         db.add(admin_policy)
         db.commit()
         db.refresh(admin_policy)
         
         admin_claim = Claim(
-            user_id=test_admin.user_id,
             policy_id=admin_policy.policy_id,
             claim_number="CLM-2024-ADMIN01",
-            claim_type="incident",
+            claim_type=ClaimType.INCIDENT,
+            status=ClaimStatus.SUBMITTED,
             incident_date="2024-01-15",
-            incident_description="Admin's claim",
-            status="submitted",
             loss_amount=10000.00,
+            claim_metadata={"description": "Admin's claim"},
         )
         db.add(admin_claim)
         db.commit()

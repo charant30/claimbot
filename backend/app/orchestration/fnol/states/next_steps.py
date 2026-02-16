@@ -28,6 +28,13 @@ def next_steps_node(state: FNOLConversationState) -> FNOLConversationState:
         triage = state.get("triage_result", {})
         route = triage.get("route", "adjuster")
 
+        # Mark NEXT_STEPS as completed so progress shows 100%
+        completed = state.get("completed_states", [])
+        if "NEXT_STEPS" not in completed:
+            completed = completed + ["NEXT_STEPS"]
+        state["completed_states"] = completed
+        state["progress_percent"] = 100
+
         # Build next steps message
         message = build_next_steps_message(state, claim_number, route)
 
@@ -53,12 +60,66 @@ def next_steps_node(state: FNOLConversationState) -> FNOLConversationState:
                 {"value": "questions", "label": "I have questions"},
                 {"value": "documents", "label": "How do I submit documents?"},
                 {"value": "timeline", "label": "What's the timeline?"},
+                {"value": "specialist", "label": "Connect me to a specialist"},
             ],
         )
 
     # Step 2: Handle follow-up questions
     if step == "awaiting_questions":
         user_input = state.get("current_input", "").lower()
+        claim_number = state.get("claim_number", "N/A")
+
+        # User wants to connect to a specialist / human agent
+        if any(
+            keyword in user_input
+            for keyword in (
+                "specialist", "human", "agent", "person", "representative",
+                "talk to someone", "connect me", "transfer", "live agent",
+            )
+        ):
+            state["should_escalate"] = True
+            state["escalation_reason"] = "User requested specialist after claim submission"
+            state["state_step"] = "escalation_requested"
+            state = add_audit_event(
+                state,
+                action="specialist_requested",
+                actor="user",
+                data_after={"reason": "User requested specialist after claim submission"},
+            )
+            return set_response(
+                state,
+                response=(
+                    "We're connecting you with a claims specialist now. "
+                    "Please wait a moment—someone will be with you shortly."
+                ),
+                pending_question=None,
+            )
+
+        # Status / inquiry: direct user to main chat (client inquiry agent) for claim status
+        if any(
+            phrase in user_input
+            for phrase in (
+                "check", "status", "where is my claim", "claim status",
+                "inquiry", "look up", "track", "update on my claim",
+            )
+        ):
+            return set_response(
+                state,
+                response=(
+                    f"Your claim has been submitted. **Claim number: {claim_number}**\n\n"
+                    "To **check your claim status** or get updates, use the main dashboard:\n"
+                    "• Go to **Home** or **My Claims** and say **\"Check claim status\"** or enter your claim number.\n"
+                    "• The status assistant will look up your claim and show you the latest updates.\n\n"
+                    "Is there anything else you need help with about this submission?"
+                ),
+                pending_question="final_questions",
+                pending_field="has_questions",
+                input_type="select",
+                options=[
+                    {"value": "done", "label": "I'm all set, thank you"},
+                    {"value": "questions", "label": "I have another question"},
+                ],
+            )
 
         if "done" in user_input or "set" in user_input or "thank" in user_input:
             state["is_complete"] = True

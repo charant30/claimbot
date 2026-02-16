@@ -34,10 +34,11 @@ export const useAuthStore = create<AuthState>()(
                 try {
                     const response = await authApi.login(email, password)
 
-                    // Check if admin role
-                    if (response.role !== 'admin') {
+                    // Check if admin role (backend returns role as string e.g. "admin")
+                    const role = (response.role || '').toLowerCase()
+                    if (role !== 'admin') {
                         set({
-                            error: 'Admin access required',
+                            error: 'Admin access required. Use an admin account (e.g. admin@claimbot.demo).',
                             isLoading: false,
                         })
                         return
@@ -54,8 +55,14 @@ export const useAuthStore = create<AuthState>()(
                         isLoading: false,
                     })
                 } catch (error: any) {
+                    const message =
+                        error.code === 'ERR_NETWORK' || !error.response
+                            ? 'Cannot reach server. Is the backend running on port 8000?'
+                            : (typeof error.response?.data?.detail === 'string'
+                                ? error.response.data.detail
+                                : error.response?.data?.detail?.message) || 'Login failed'
                     set({
-                        error: error.response?.data?.detail || 'Login failed',
+                        error: message,
                         isLoading: false,
                     })
                 }
