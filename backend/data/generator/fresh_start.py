@@ -342,12 +342,7 @@ def fresh_start():
             print("="*70)
             print("\nLOGIN CREDENTIALS:")
             print("-" * 70)
-            # Get the created data for display
-            policy = db.query(Policy).filter(Policy.policy_number == "AUT-123456").first()
-            
-            # Get the created data for display
             policy = db.query(Policy).filter(Policy.policy_number == "AUTO-123456").first()
-            
             print("CUSTOMER (Main Test Account):")
             print("  Email:    john.smith@example.com")
             print("  Password: demo123")

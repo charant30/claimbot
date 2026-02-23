@@ -103,7 +103,7 @@ def reset_database():
         )
         db.add(policy)
         db.flush()
-        print("      > Policy created: AUT-123456")
+        print("      > Policy created: AUTO-123456")
         
         # Coverages
         coverages = [
@@ -273,7 +273,7 @@ def reset_database():
         print("CUSTOMER (John Smith):")
         print("  Email:    john.smith@example.com")
         print("  Password: demo123")
-        print("  Policy:   AUT-123456")
+        print("  Policy:   AUTO-123456")
         print("  Vehicles: 2023 Honda Accord, 2021 Toyota Highlander")
         print("  Drivers:  John (Primary), Sarah (Spouse)")
         print("  Claims:   2 sample claims")

@@ -3,8 +3,11 @@ Playbook Registry
 
 Manages all FNOL playbooks and provides detection/lookup functionality.
 """
+import logging
 from typing import Dict, List, Optional, Type, Tuple, Any
 from app.orchestration.fnol.playbooks.base import BasePlaybook, PlaybookQuestion
+
+log = logging.getLogger(__name__)
 
 
 class PlaybookRegistry:
@@ -83,8 +86,7 @@ class PlaybookRegistry:
                 if confidence >= threshold:
                     results.append((playbook_id, confidence))
             except Exception as e:
-                # Log error but continue with other playbooks
-                print(f"Error detecting playbook {playbook_id}: {e}")
+                log.exception("Error detecting playbook %s: %s", playbook_id, e)
                 continue
 
         # Sort by confidence descending, then by priority ascending

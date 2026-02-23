@@ -1,54 +1,46 @@
 # ClaimBot Backend
 
-Insurance claims automation backend with FastAPI, PostgreSQL, and LangGraph.
+FastAPI + PostgreSQL + LangGraph backend for insurance claims automation.
 
 ## Setup
 
-1. Create virtual environment:
-```bash
-python -m venv venv
-venv\Scripts\activate
-```
+1. **Virtual environment**
+   ```bash
+   python -m venv venv
+   venv\Scripts\activate   # Windows
+   ```
 
-2. Install dependencies:
-```bash
-pip install -r requirements.txt
-```
+2. **Dependencies**
+   ```bash
+   pip install -r requirements.txt
+   ```
 
-3. Configure environment:
-```bash
-copy .env.example .env
-# Edit .env with your PostgreSQL credentials
-```
+3. **Environment** — copy `.env.example` to `.env` and set `DATABASE_URL` (and other keys as needed).
+   - Windows: `copy .env.example .env`
 
-4. Run migrations:
-```bash
-alembic upgrade head
-```
+4. **Migrations**
+   ```bash
+   alembic upgrade head
+   ```
 
-5. Seed database (fresh start with ONE complete customer):
-```bash
-python -m data.generator.fresh_start
-```
+5. **Seed** (one demo customer with policy, vehicles, drivers, claims; plus admin and Celest users)
+   ```bash
+   python -m data.generator.fresh_start
+   ```
 
-6. Start server:
-```bash
-uvicorn main:app --reload
-```
+6. **Run**
+   ```bash
+   uvicorn main:app --reload
+   ```
 
-## Project Structure
+## Structure
 
-```
-backend/
-├── app/
-│   ├── api/routes/      # API endpoints
-│   ├── core/            # Config, security, logging
-│   ├── db/models/       # SQLAlchemy models
-│   ├── services/        # Business logic
-│   ├── orchestration/   # LangGraph graphs and tools
-│   └── websocket/       # Real-time chat
-├── data/generator/      # Synthetic data generation
-├── tests/               # Unit and integration tests
-├── alembic/             # Database migrations
-└── main.py              # FastAPI app entry
-```
+- `app/api/routes/` — API endpoints  
+- `app/core/` — Config, security, logging  
+- `app/db/models/` — SQLAlchemy models  
+- `app/services/` — Business logic  
+- `app/orchestration/` — LangGraph graphs and tools  
+- `data/generator/` — Seed script (fresh_start)  
+- `tests/` — Tests  
+- `alembic/` — Migrations  
+- `main.py` — App entry

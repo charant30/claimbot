@@ -1,11 +1,8 @@
-# ClaimBot Project Video Scenerio Transcript
+# ClaimBot Demo Video Script
 
-**Objective:** This document provides a complete script for recording a demo video of the ClaimBot project. It covers the end-to-end flow from configuration to claim settlement.
+Script for a demo video: configuration → claim submission → specialist review. Adjust ports (e.g. 3000, 3001, 3002) to match your setup.
 
-**Cast of Characters:**
-*   **Narrator (You):** The voice explaining the technical and business value.
-*   **Sarah (User Persona):** A policyholder involved in a minor collision.
-*   **Mike (Adjuster Persona):** A claims specialist reviewing the case.
+**Roles:** Narrator (you); Sarah (policyholder); Mike (claims specialist).
 
 ---
 

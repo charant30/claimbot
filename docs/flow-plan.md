@@ -1,6 +1,6 @@
-# ClaimBot Incident Flow & Agent Management Plan
+# ClaimBot Incident Flow and Agent Management
 
-This document outlines the end-to-end flow for the guided incident experience, document intake, and agent handoff, along with the recommended implementation sequence.
+End-to-end flow for guided incident intake, document handling, and agent handoff, plus implementation order.
 
 ## 1) Guided Intake (Customer Chat UI)
 

@@ -156,12 +156,12 @@ def celest_headers(celest_token: str) -> dict:
 def test_policy(db: Session, test_user):
     """Create a test policy."""
     from datetime import date
-    from app.db.models import Policy, PolicyStatus
+    from app.db.models import Policy, PolicyStatus, ProductType
 
     policy = Policy(
         user_id=test_user.user_id,
         policy_number="TEST-2024-001234",
-        product_type="auto",
+        product_type=ProductType.AUTO,
         effective_date=date(2024, 1, 1),
         expiration_date=date(2025, 1, 1),
         status=PolicyStatus.ACTIVE,
